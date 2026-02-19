@@ -1,0 +1,2150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TagDrop</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, sans-serif;
+      background: #f0f2f5;
+      min-height: 100vh;
+      color: #1a1a2e;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: var(--sidebar-w, 230px) 1fr;
+      min-height: 100vh;
+    }
+
+    /* ── Sidebar ── */
+    .sidebar {
+      background: #1a1a2e;
+      color: #e5e7eb;
+      padding: 28px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
+      overflow-x: visible;
+    }
+
+    /* ── Sidebar resize handle ── */
+    .sidebar-resizer {
+      position: absolute;
+      top: 0;
+      right: -3px;
+      width: 6px;
+      height: 100%;
+      cursor: col-resize;
+      background: transparent;
+      z-index: 20;
+      border-radius: 3px;
+      transition: background 0.15s;
+      flex-shrink: 0;
+    }
+    .sidebar-resizer:hover,
+    .sidebar-resizer.dragging { background: rgba(99,102,241,0.45); }
+
+    .sidebar .logo {
+      font-size: 1.3rem;
+      font-weight: 800;
+      color: #a5b4fc;
+      margin-bottom: 20px;
+    }
+
+    .sidebar-section-label {
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #4b5563;
+      margin: 14px 0 4px 10px;
+    }
+
+    .cat-btn {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 10px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 0.88rem;
+      background: none;
+      border: none;
+      color: #9ca3af;
+      text-align: left;
+      width: 100%;
+      transition: background 0.15s, color 0.15s;
+    }
+    .cat-btn:hover { background: #2d2d4e; color: #e5e7eb; }
+    .cat-btn.active { background: #4f46e5; color: #fff; }
+
+    .cat-count {
+      background: rgba(255,255,255,0.12);
+      border-radius: 10px;
+      padding: 1px 7px;
+      font-size: 0.72rem;
+    }
+    .cat-btn.active .cat-count { background: rgba(255,255,255,0.25); }
+
+    .cat-del {
+      color: #4b5563;
+      font-size: 0.75rem;
+      padding: 0 3px;
+      cursor: pointer;
+      line-height: 1;
+      margin-left: 2px;
+    }
+    .cat-del:hover { color: #ef4444; }
+
+    .add-cat-row {
+      display: flex;
+      gap: 6px;
+      margin-top: 8px;
+      margin-bottom: 4px;
+    }
+    .add-cat-row input {
+      flex: 1;
+      padding: 6px 10px;
+      border-radius: 6px;
+      border: 1.5px solid #374151;
+      background: #111827;
+      color: #e5e7eb;
+      font-size: 0.82rem;
+      outline: none;
+    }
+    .add-cat-row input:focus { border-color: #6366f1; }
+    .add-cat-row button {
+      padding: 6px 10px;
+      background: #4f46e5;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-size: 0.82rem;
+      cursor: pointer;
+    }
+
+    /* ── Data panel ── */
+    .data-panel {
+      padding-bottom: 16px;
+      border-bottom: 1px solid #2d2d4e;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .data-panel-title {
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #4b5563;
+      margin-bottom: 2px;
+    }
+
+    .data-btn {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 7px 10px;
+      border-radius: 7px;
+      border: none;
+      font-size: 0.82rem;
+      cursor: pointer;
+      width: 100%;
+      text-align: left;
+      transition: background 0.15s;
+    }
+
+    .data-btn.export { background: #1e3a2f; color: #6ee7b7; }
+    .data-btn.export:hover { background: #14532d; }
+    .data-btn.import { background: #1e2a3a; color: #93c5fd; }
+    .data-btn.import:hover { background: #1e3a5f; }
+    .data-btn.restore { background: #2d1e1e; color: #fca5a5; }
+    .data-btn.restore:hover { background: #3d1e1e; }
+    .data-btn.refresh-stats { background: #1e2a3a; color: #a5b4fc; }
+    .data-btn.refresh-stats:hover { background: #2d3a5a; }
+    .data-btn.refresh-stats:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .backup-info {
+      font-size: 0.72rem;
+      color: #4b5563;
+      padding: 0 2px;
+    }
+
+    .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; margin-right: 6px; flex-shrink: 0; }
+
+    /* ── Main ── */
+    .main { padding: 32px 32px; max-width: 900px; }
+
+    .main-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .main-header h1 { font-size: 1.45rem; font-weight: 700; }
+
+    .search-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: #fff;
+      border: 1.5px solid #d1d5db;
+      border-radius: 8px;
+      padding: 7px 13px;
+      width: 240px;
+    }
+    .search-bar input { border: none; outline: none; font-size: 0.88rem; width: 100%; color: #374151; }
+    .search-bar svg { color: #9ca3af; flex-shrink: 0; }
+
+    /* ── AI analyse bar ── */
+    .ai-bar {
+      background: linear-gradient(135deg, #1a1a2e 0%, #2d2d4e 100%);
+      border-radius: 12px;
+      padding: 18px 20px;
+      margin-bottom: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .ai-bar-title {
+      font-size: 0.82rem;
+      font-weight: 700;
+      color: #a5b4fc;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .ai-url-row {
+      display: flex;
+      gap: 8px;
+    }
+    .ai-url-row input {
+      flex: 1;
+      padding: 9px 13px;
+      border-radius: 8px;
+      border: 1.5px solid #374151;
+      background: #111827;
+      color: #e5e7eb;
+      font-size: 0.9rem;
+      outline: none;
+    }
+    .ai-url-row input:focus { border-color: #6366f1; }
+    .ai-url-row input::placeholder { color: #4b5563; }
+
+    .btn-ai {
+      padding: 9px 18px;
+      background: #6366f1;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: background 0.2s;
+    }
+    .btn-ai:hover { background: #4f46e5; }
+    .btn-ai:disabled { background: #374151; cursor: not-allowed; }
+
+    .ai-status {
+      font-size: 0.82rem;
+      color: #6b7280;
+      min-height: 18px;
+    }
+    .ai-status.ok  { color: #10b981; }
+    .ai-status.err { color: #ef4444; }
+
+    /* settings row */
+    .ai-key-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .ai-key-row label { font-size: 0.78rem; color: #6b7280; white-space: nowrap; }
+    .ai-key-row input {
+      flex: 1;
+      min-width: 200px;
+      padding: 6px 10px;
+      border-radius: 6px;
+      border: 1.5px solid #374151;
+      background: #111827;
+      color: #e5e7eb;
+      font-size: 0.82rem;
+      outline: none;
+      font-family: monospace;
+    }
+    .ai-key-row input:focus { border-color: #6366f1; }
+    .ai-key-row button {
+      padding: 6px 12px;
+      background: #374151;
+      color: #e5e7eb;
+      border: none;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      cursor: pointer;
+    }
+    .ai-key-row button:hover { background: #4b5563; }
+
+    .btn-primary {
+      padding: 8px 20px;
+      background: #6366f1;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.88rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .btn-primary:hover { background: #4f46e5; }
+
+    .btn-ghost {
+      padding: 8px 14px;
+      background: none;
+      color: #6b7280;
+      border: 1.5px solid #d1d5db;
+      border-radius: 8px;
+      font-size: 0.88rem;
+      cursor: pointer;
+    }
+    .btn-ghost:hover { border-color: #9ca3af; color: #374151; }
+
+    /* ── Shared action button styles ── */
+    .card-list-actions { display: flex; gap: 4px; flex-shrink: 0; }
+    .card-list-actions button {
+      background: none; border: none; cursor: pointer;
+      color: #d1d5db; font-size: 1rem; padding: 2px 5px;
+      border-radius: 4px; transition: color 0.15s;
+    }
+    .card-list-actions .fav:hover,  .card-list-actions .fav.active  { color: #f59e0b; }
+    .card-list-actions .del:hover                                    { color: #ef4444; }
+    .card-list-actions .edit:hover                                   { color: #6366f1; }
+    .card-list-actions .restore:hover                                { color: #10b981; }
+    .card-list-actions .watch:hover, .card-list-actions .watch.active { color: #3b82f6; }
+    .card-list.watched { opacity: 0.5; }
+    .card-list.watched:hover { opacity: 0.85; }
+
+    .card-url a {
+      font-size: 0.8rem; color: #6366f1;
+      text-decoration: none; word-break: break-all;
+    }
+    .card-url a:hover { text-decoration: underline; }
+
+    .card-desc { font-size: 0.83rem; color: #6b7280; line-height: 1.5; }
+
+    .card-tags { display: flex; flex-wrap: wrap; gap: 5px; }
+    .tag {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 20px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      background: #f3f4f6;
+      color: #374151;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s, transform 0.1s;
+      user-select: none;
+    }
+    .tag:hover { filter: brightness(0.93); }
+    .tag.active { background: #1a1a2e !important; color: #fff !important; }
+    .tag.creator { background: #eef2ff; color: #6366f1; }
+    .tag.tech    { background: #ecfdf5; color: #10b981; }
+    .tag.topic   { background: #f3f4f6; color: #374151; }
+
+    /* ── Sidebar tag filter sections ── */
+    .tag-filter-area { margin-top: 8px; }
+
+    .tag-section { margin-top: 6px; }
+
+    .tag-section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 5px 10px;
+      cursor: pointer;
+      user-select: none;
+      border-radius: 6px;
+      transition: background 0.15s;
+    }
+    .tag-section-header:hover { background: #2d2d4e; }
+    .tag-section-title {
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #6b7280;
+      font-weight: 700;
+    }
+    .tag-section-chevron { font-size: 0.65rem; color: #4b5563; transition: transform 0.2s; }
+    .tag-section-chevron.open { transform: rotate(180deg); }
+
+    .tag-section-body {
+      display: none;
+      flex-wrap: wrap;
+      gap: 5px;
+      padding: 6px 10px 4px;
+    }
+    .tag-section-body.open { display: flex; }
+
+    .sidebar-tag {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 20px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+      user-select: none;
+    }
+    .sidebar-tag.creator { background: #1e1a3e; color: #818cf8; }
+    .sidebar-tag.tech    { background: #1a2e27; color: #34d399; }
+    .sidebar-tag.topic   { background: #1f2937; color: #9ca3af; }
+    .sidebar-tag.active  { background: #6366f1 !important; color: #fff !important; }
+    .sidebar-tag.dimmed  { opacity: 0.3; cursor: default; pointer-events: none; }
+    .sidebar-tag:hover   { filter: brightness(1.3); }
+    .sidebar-tag-count {
+      font-size: 0.65rem;
+      font-weight: 400;
+      opacity: 0.7;
+      margin-left: 3px;
+    }
+
+    .clear-tag-filters {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 10px;
+      margin-top: 4px;
+      border-radius: 6px;
+      background: #2d1e1e;
+      color: #fca5a5;
+      font-size: 0.75rem;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      width: 100%;
+      text-align: left;
+      transition: background 0.15s;
+    }
+    .clear-tag-filters:hover { background: #3d1e1e; }
+
+    .badge {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 20px;
+      font-size: 0.72rem;
+      font-weight: 600;
+    }
+    .card-date { font-size: 0.72rem; color: #9ca3af; }
+
+
+    .card-stats {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      font-size: 0.72rem;
+      color: #6b7280;
+      padding: 5px 0 2px;
+      border-top: 1px solid #f3f4f6;
+    }
+    .card-stat {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      white-space: nowrap;
+    }
+    .card-stat-icon { font-size: 0.78rem; }
+    .card-stat-val  { font-weight: 600; color: #374151; }
+    .card-published { font-size: 0.72rem; color: #9ca3af; }
+
+    /* ── Sort / filter bar ── */
+    .sort-bar {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      background: #fff;
+      border-radius: 10px;
+      box-shadow: 0 1px 6px rgba(0,0,0,0.06);
+      padding: 10px 14px;
+      margin-bottom: 14px;
+      font-size: 0.82rem;
+    }
+    .sort-bar-label {
+      color: #6b7280;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .sort-bar select {
+      padding: 5px 10px;
+      border: 1.5px solid #d1d5db;
+      border-radius: 7px;
+      font-size: 0.82rem;
+      color: #374151;
+      background: #f9fafb;
+      outline: none;
+      cursor: pointer;
+    }
+    .sort-bar select:focus { border-color: #6366f1; }
+    .sort-bar-clear {
+      padding: 4px 10px;
+      background: none;
+      border: 1.5px solid #d1d5db;
+      border-radius: 6px;
+      font-size: 0.78rem;
+      color: #6b7280;
+      cursor: pointer;
+    }
+    .sort-bar-clear:hover { border-color: #9ca3af; color: #374151; }
+    .sort-bar-spacer { flex: 1; }
+    .sort-bar-notebooklm {
+      padding: 4px 10px;
+      border-radius: 6px;
+      border: 1px solid #3d3d5c;
+      background: none;
+      color: #a0a0c0;
+      cursor: pointer;
+      font-size: 0.75rem;
+      white-space: nowrap;
+    }
+    .sort-bar-notebooklm:hover { border-color: #6366f1; color: #6366f1; }
+
+    .list-thumb {
+      width: 140px;
+      aspect-ratio: 16 / 9;
+      object-fit: cover;
+      border-radius: 6px;
+      flex-shrink: 0;
+      align-self: flex-start;
+      margin-top: 4px;
+    }
+
+    .empty-state {
+      grid-column: 1 / -1;
+      text-align: center;
+      color: #9ca3af;
+      padding: 48px 0;
+      font-size: 0.92rem;
+    }
+
+    /* ── Modal ── */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.4);
+      z-index: 100;
+      justify-content: center;
+      align-items: center;
+    }
+    .modal-overlay.open { display: flex; }
+
+    .modal {
+      background: #fff;
+      border-radius: 14px;
+      padding: 26px;
+      width: 100%;
+      max-width: 520px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 13px;
+      box-shadow: 0 8px 40px rgba(0,0,0,0.2);
+    }
+    .modal h2 { grid-column: 1/-1; font-size: 1.05rem; font-weight: 700; }
+    .modal .full { grid-column: 1/-1; }
+    .modal label { display: block; font-size: 0.75rem; font-weight: 600; color: #6b7280; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.05em; }
+    .modal input, .modal select, .modal textarea {
+      width: 100%; padding: 8px 11px; border: 1.5px solid #d1d5db;
+      border-radius: 8px; font-size: 0.88rem; outline: none;
+      font-family: inherit; color: #374151;
+    }
+    .modal input:focus, .modal select:focus, .modal textarea:focus { border-color: #6366f1; }
+    .modal textarea { resize: vertical; min-height: 58px; }
+    .modal .form-actions { grid-column: 1/-1; display: flex; justify-content: flex-end; gap: 8px; }
+
+    /* spinner */
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner {
+      width: 14px; height: 14px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      display: inline-block;
+    }
+
+
+    /* ── List view ── */
+    .resources-list { display: flex; flex-direction: column; gap: 8px; }
+    .card-list {
+      background: #fff;
+      border-radius: 10px;
+      box-shadow: 0 1px 6px rgba(0,0,0,0.07);
+      padding: 12px 16px;
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
+      transition: box-shadow 0.2s;
+    }
+    .card-list:hover { box-shadow: 0 3px 14px rgba(0,0,0,0.10); }
+    .card-list-left  { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+    .card-list-right { flex-shrink: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; min-width: 160px; }
+    .card-list-title { font-size: 0.92rem; font-weight: 600; color: #1a1a2e; }
+    .watched-divider {
+      display: flex; align-items: center; gap: 10px;
+      margin: 16px 0 8px;
+      color: #9ca3af; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+    }
+    .watched-divider::before, .watched-divider::after {
+      content: ''; flex: 1; height: 1px; background: #e5e7eb;
+    }
+
+    /* ── API Keys panel (sidebar bottom) ── */
+    .api-keys-panel {
+      margin-top: auto;
+      padding-top: 12px;
+      border-top: 1px solid #2d2d4e;
+      flex-shrink: 0;
+    }
+
+    .api-keys-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 10px;
+      cursor: pointer;
+      border-radius: 7px;
+      transition: background 0.15s;
+      user-select: none;
+    }
+    .api-keys-header:hover { background: #2d2d4e; }
+
+    .api-keys-header-left {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #6b7280;
+      font-weight: 700;
+    }
+
+    .api-status-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      transition: background 0.3s;
+    }
+    .api-status-dot.all-ok  { background: #10b981; box-shadow: 0 0 5px rgba(16,185,129,0.5); }
+    .api-status-dot.partial { background: #f59e0b; box-shadow: 0 0 5px rgba(245,158,11,0.4); }
+    .api-status-dot.none    { background: #4b5563; }
+
+    .api-keys-chevron { font-size: 0.65rem; color: #4b5563; transition: transform 0.2s; }
+    .api-keys-chevron.open { transform: rotate(180deg); }
+
+    .api-keys-body {
+      display: none;
+      flex-direction: column;
+      gap: 10px;
+      padding: 10px 4px 4px;
+    }
+    .api-keys-body.open { display: flex; }
+
+    .api-key-field { display: flex; flex-direction: column; gap: 5px; }
+
+    .api-key-label-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .api-key-label {
+      font-size: 0.7rem;
+      color: #6b7280;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .api-key-indicator {
+      font-size: 0.7rem;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 3px;
+    }
+    .api-key-indicator.ok  { color: #10b981; }
+    .api-key-indicator.missing { color: #4b5563; }
+
+    .api-key-input-row {
+      display: flex;
+      gap: 5px;
+    }
+    .api-key-input-row input {
+      flex: 1;
+      padding: 6px 9px;
+      border-radius: 6px;
+      border: 1.5px solid #374151;
+      background: #111827;
+      color: #e5e7eb;
+      font-size: 0.78rem;
+      outline: none;
+      font-family: monospace;
+      min-width: 0;
+    }
+    .api-key-input-row input:focus { border-color: #6366f1; }
+    .api-key-input-row button {
+      padding: 6px 10px;
+      background: #374151;
+      color: #e5e7eb;
+      border: none;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      cursor: pointer;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .api-key-input-row button:hover { background: #4b5563; }
+  </style>
+</head>
+<body>
+<div class="layout">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="logo">&#127991;&#65039; TagDrop</div>
+
+    <!-- Data panel — collapsible -->
+    <div class="data-panel" style="padding-bottom:0;border-bottom:none;gap:0;">
+      <div class="tag-section-header" onclick="toggleSidebarSection('data')" style="margin-bottom:0;">
+        <span class="tag-section-title">Data</span>
+        <span class="tag-section-chevron open" id="chevron-data">▼</span>
+      </div>
+      <div id="body-data" class="tag-section-body open" style="flex-direction:column;gap:6px;padding:8px 4px 12px;">
+        <button class="data-btn export" onclick="exportData()">&#8595; Export collection</button>
+        <button class="data-btn import" onclick="document.getElementById('import-file').click()">&#8593; Import collection</button>
+        <button class="data-btn restore" id="restore-btn" onclick="restoreBackup()" style="display:none;">&#8635; Restore auto-backup</button>
+        <button class="data-btn refresh-stats" id="refresh-stats-btn" onclick="refreshYouTubeStats()">&#8635; Refresh YouTube Stats</button>
+        <div class="backup-info" id="backup-info"></div>
+        <input type="file" id="import-file" accept=".json" style="display:none;" onchange="importData(event)" />
+      </div>
+    </div>
+
+    <!-- Categories — collapsible -->
+    <div class="tag-section" style="margin-top:0;">
+      <div class="tag-section-header" onclick="toggleSidebarSection('categories')">
+        <span class="tag-section-title">Categories</span>
+        <span class="tag-section-chevron open" id="chevron-categories">▼</span>
+      </div>
+      <div id="body-categories" class="tag-section-body open" style="flex-direction:column;gap:0;padding:4px 0 8px;">
+        <div id="cat-list"></div>
+        <div class="add-cat-row" style="margin-top:6px;padding:0 10px;">
+          <input type="text" id="new-cat-input" placeholder="Add category..." maxlength="30" />
+          <button onclick="addCategory()">+</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="tag-filter-area" class="tag-filter-area"></div>
+
+    <!-- API Key Configuration — pinned to bottom of sidebar -->
+    <div class="api-keys-panel" id="api-keys-panel">
+      <div class="api-keys-header" onclick="toggleApiKeysPanel()">
+        <div class="api-keys-header-left">
+          <span class="api-status-dot none" id="api-status-dot"></span>
+          API Keys
+        </div>
+        <span class="api-keys-chevron" id="api-keys-chevron">▼</span>
+      </div>
+      <div class="api-keys-body" id="api-keys-body">
+
+        <div class="api-key-field">
+          <div class="api-key-label-row">
+            <span class="api-key-label">Gemini</span>
+            <span class="api-key-indicator missing" id="gemini-indicator">— not set</span>
+          </div>
+          <div class="api-key-input-row">
+            <input type="password" id="gemini-key-input" placeholder="AIza..." />
+            <button onclick="saveApiKey()">Save</button>
+          </div>
+        </div>
+
+        <div class="api-key-field">
+          <div class="api-key-label-row">
+            <span class="api-key-label">YouTube</span>
+            <span class="api-key-indicator missing" id="youtube-indicator">— not set</span>
+          </div>
+          <div class="api-key-input-row">
+            <input type="password" id="youtube-key-input" placeholder="AIza..." />
+            <button onclick="saveYouTubeApiKey()">Save</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="sidebar-resizer" id="sidebar-resizer"></div>
+  </aside>
+
+  <!-- Main -->
+  <main class="main">
+    <div class="main-header">
+      <h1 id="page-title">All Resources</h1>
+      <div class="search-bar">
+        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+        </svg>
+        <input type="text" id="search-input" placeholder="Search..." oninput="debouncedRender()" />
+      </div>
+    </div>
+
+    <!-- AI Analyse bar -->
+    <div class="ai-bar">
+      <div class="ai-bar-title">&#10024; AI Auto-Add</div>
+
+      <div class="ai-url-row">
+        <input type="url" id="ai-url-input" placeholder="Paste a link and let Gemini file it automatically..." />
+        <button class="btn-ai" id="ai-btn" onclick="analyseUrl()">
+          <span id="ai-btn-label">Analyse</span>
+        </button>
+      </div>
+
+      <div class="ai-status" id="ai-status"></div>
+    </div>
+
+    <!-- Sort bar -->
+    <div class="sort-bar" id="sort-bar">
+      <span class="sort-bar-label">Sort:</span>
+      <select id="sort-select" onchange="render()">
+        <option value="added-desc">Date added (newest)</option>
+        <option value="added-asc">Date added (oldest)</option>
+        <option value="published-desc">Date posted (newest)</option>
+        <option value="published-asc">Date posted (oldest)</option>
+        <option value="views-desc">Most views</option>
+        <option value="likes-desc">Most likes</option>
+        <option value="duration-desc">Longest first</option>
+        <option value="duration-asc">Shortest first</option>
+      </select>
+
+      <button class="sort-bar-clear" onclick="clearSortFilters()">✕ Reset</button>
+
+      <div class="sort-bar-spacer"></div>
+      <button class="sort-bar-notebooklm" id="notebooklm-btn" onclick="exportForNotebookLM()" title="Export YouTube URLs for NotebookLM">&#128211; NotebookLM</button>
+
+    </div>
+
+    <!-- Cards -->
+    <div class="resources-grid" id="resources-grid"></div>
+  </main>
+</div>
+
+<!-- Edit modal -->
+<div class="modal-overlay" id="modal">
+  <div class="modal">
+    <h2>Edit Resource</h2>
+    <div>
+      <label>Title</label>
+      <input type="text" id="e-title" maxlength="100" />
+    </div>
+    <div>
+      <label>Category</label>
+      <select id="e-cat"></select>
+    </div>
+    <div class="full">
+      <label>URL</label>
+      <input type="url" id="e-url" />
+    </div>
+    <div class="full">
+      <label>Description</label>
+      <textarea id="e-desc"></textarea>
+    </div>
+    <div class="full">
+      <label>Tags <span style="font-weight:400;text-transform:none;">(comma-separated)</span></label>
+      <input type="text" id="e-tags" />
+    </div>
+    <div class="form-actions">
+      <button class="btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn-primary" onclick="saveEdit()">Save</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ── Palette ──
+  const PALETTE = ['#6366f1','#10b981','#f59e0b','#ef4444','#3b82f6','#8b5cf6','#ec4899','#14b8a6','#f97316','#84cc16'];
+
+  const DEFAULT_CATEGORIES = [
+    { id: 'tools',     name: 'Tools',     color: '#6366f1' },
+    { id: 'models',    name: 'Models',    color: '#10b981' },
+    { id: 'papers',    name: 'Papers',    color: '#f59e0b' },
+    { id: 'tutorials', name: 'Tutorials', color: '#3b82f6' },
+    { id: 'prompts',   name: 'Prompts',   color: '#8b5cf6' },
+    { id: 'apis',      name: 'APIs',      color: '#ec4899' },
+  ];
+
+  // ── Safe localStorage reader ──
+  function loadJSON(key, fallback) {
+    try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; }
+    catch { return fallback; }
+  }
+
+  // ── Migrate old localStorage keys (ai-* → tagdrop-*) ──
+  (function() {
+    [['ai-resources','tagdrop-resources'],['ai-categories','tagdrop-categories'],['ai-auto-backup','tagdrop-auto-backup']].forEach(([o,n]) => {
+      const v = localStorage.getItem(o);
+      if (v !== null && localStorage.getItem(n) === null) { localStorage.setItem(n, v); localStorage.removeItem(o); }
+    });
+  })();
+
+  // ── State ──
+  let resources  = loadJSON('tagdrop-resources', []).map(r => ({ favourite: false, archived: false, watched: false, ...r }));
+  let categories = loadJSON('tagdrop-categories', null) || DEFAULT_CATEGORIES;
+  let activeFilter = 'all';
+  let activeTagFilters = new Set();
+  const tagSectionOpen = { creator: true, tech: true, topic: false };
+  const sidebarSectionOpen = loadJSON('sidebar-sections', { data: true, categories: true });
+  let editingId = null;
+  function save() {
+    localStorage.setItem('tagdrop-resources',  JSON.stringify(resources));
+    localStorage.setItem('tagdrop-categories', JSON.stringify(categories));
+    autoBackup();
+  }
+
+  function saveAndRefresh() { save(); renderSidebar(); renderCatSelects(); render(); }
+
+  // ── Debounced search ──
+  let _searchTimer;
+  function debouncedRender() { clearTimeout(_searchTimer); _searchTimer = setTimeout(render, 150); }
+
+  // ── Auto-backup ──
+  function autoBackup() {
+    const snapshot = {
+      version: 2,        // v2: resources include favourite + archived fields
+      savedAt: new Date().toISOString(),
+      resources,
+      categories
+    };
+    localStorage.setItem('tagdrop-auto-backup', JSON.stringify(snapshot));
+    renderBackupInfo();
+  }
+
+  function renderBackupInfo() {
+    const raw = localStorage.getItem('tagdrop-auto-backup');
+    const restoreBtn = document.getElementById('restore-btn');
+    const info = document.getElementById('backup-info');
+    if (!raw) { restoreBtn.style.display = 'none'; info.textContent = ''; return; }
+    try {
+      const snap = JSON.parse(raw);
+      const d = new Date(snap.savedAt);
+      const label = d.toLocaleString('en-GB', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' });
+      info.textContent = `Last backup: ${label}`;
+      restoreBtn.style.display = 'flex';
+    } catch { restoreBtn.style.display = 'none'; }
+  }
+
+  function restoreBackup() {
+    const raw = localStorage.getItem('tagdrop-auto-backup');
+    if (!raw) { alert('No auto-backup found.'); return; }
+    try {
+      const snap = JSON.parse(raw);
+      const d = new Date(snap.savedAt).toLocaleString('en-GB');
+      if (!confirm(`Restore auto-backup from ${d}?\n\nThis will replace your current data.`)) return;
+      resources  = snap.resources  || [];
+      categories = snap.categories || DEFAULT_CATEGORIES;
+      // Save to main storage WITHOUT triggering a new backup overwrite
+      localStorage.setItem('tagdrop-resources',  JSON.stringify(resources));
+      localStorage.setItem('tagdrop-categories', JSON.stringify(categories));
+      renderSidebar();
+      renderCatSelects();
+      render();
+      alert('Restored successfully.');
+    } catch { alert('Backup data is corrupted.'); }
+  }
+
+  // ── Export collection (current filtered view, non-archived) ──
+  function exportData() {
+    const toExport = (window._visibleResources || resources).filter(r => !r.archived);
+    if (toExport.length === 0) { alert('No resources in the current view to export.'); return; }
+    const usedCatIds = new Set(toExport.map(r => r.catId));
+    const payload = {
+      version: 2,
+      exportedAt: new Date().toISOString(),
+      resources: toExport,
+      categories: categories.filter(c => usedCatIds.has(c.id)),
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    const date = new Date().toISOString().slice(0, 10);
+    a.href     = url;
+    a.download = `tagdrop-collection-${date}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // ── Export for NotebookLM ──
+  function exportForNotebookLM() {
+    const ytResources = (window._visibleResources || resources).filter(r =>
+      !r.archived && extractYouTubeId(r.url)
+    );
+    if (ytResources.length === 0) {
+      alert('No YouTube videos match the current filters.');
+      return;
+    }
+    const content = ytResources.map(r => r.url).join('\n');
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    const date = new Date().toISOString().slice(0, 10);
+    a.href     = url;
+    a.download = `notebooklm-sources-${date}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // ── Import collection (merge-only) ──
+  function importData(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        const parsed = JSON.parse(e.target.result);
+        if (!Array.isArray(parsed.resources) || !Array.isArray(parsed.categories)) {
+          throw new Error('Invalid format');
+        }
+
+        const fileVersion  = parsed.version || 1;
+        const exportedDate = parsed.exportedAt || parsed.savedAt || 'unknown date';
+        const dateLabel    = exportedDate !== 'unknown date'
+          ? new Date(exportedDate).toLocaleString('en-GB', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' })
+          : 'unknown date';
+
+        // Backfill v1 resources that lack favourite/archived fields
+        const normalised = parsed.resources.map(r => ({
+          favourite: false,
+          archived:  false,
+          ...r
+        }));
+
+        const summary = [
+          `File: ${file.name}`,
+          `Exported: ${dateLabel}  (schema v${fileVersion})`,
+          `Resources: ${normalised.length}`,
+          `Categories: ${parsed.categories.length}`,
+          ``,
+          `Click OK to add these to your library.`,
+          `Duplicates will be skipped automatically.`,
+        ].join('\n');
+
+        if (!confirm(summary)) { event.target.value = ''; return; }
+
+        // Merge — add only items whose IDs don't already exist
+        const existingResIds = new Set(resources.map(r => r.id));
+        const existingCatIds = new Set(categories.map(c => c.id));
+        const newRes  = normalised.filter(r => !existingResIds.has(r.id));
+        const newCats = parsed.categories.filter(c => !existingCatIds.has(c.id));
+        resources  = [...resources,  ...newRes];
+        categories = [...categories, ...newCats];
+        saveAndRefresh();
+
+        const skipped = normalised.length - newRes.length;
+        const parts = [`${newRes.length} resource(s) added`];
+        if (skipped > 0)       parts.push(`${skipped} already existed (skipped)`);
+        if (newCats.length > 0) parts.push(`${newCats.length} new category/categories added`);
+        alert(`Done! ${parts.join(', ')}.`);
+
+      } catch (err) {
+        alert('Could not read file. Make sure it is a valid TagDrop collection file.\n\n' + err.message);
+      }
+      event.target.value = '';
+    };
+    reader.readAsText(file);
+  }
+
+  // ── API Keys panel ──
+  let apiKeysPanelOpen = JSON.parse(localStorage.getItem('api-keys-panel-open') || 'false');
+
+  function toggleApiKeysPanel() {
+    apiKeysPanelOpen = !apiKeysPanelOpen;
+    localStorage.setItem('api-keys-panel-open', JSON.stringify(apiKeysPanelOpen));
+    document.getElementById('api-keys-body').classList.toggle('open', apiKeysPanelOpen);
+    document.getElementById('api-keys-chevron').classList.toggle('open', apiKeysPanelOpen);
+  }
+
+  function renderApiKeyStatus() {
+    const hasGemini  = !!localStorage.getItem('gemini-api-key');
+    const hasYouTube = !!localStorage.getItem('youtube-api-key');
+
+    // Per-key indicators
+    const geminiInd  = document.getElementById('gemini-indicator');
+    const youtubeInd = document.getElementById('youtube-indicator');
+    if (geminiInd) {
+      geminiInd.textContent = hasGemini  ? '✓ saved' : '— not set';
+      geminiInd.className   = 'api-key-indicator ' + (hasGemini  ? 'ok' : 'missing');
+    }
+    if (youtubeInd) {
+      youtubeInd.textContent = hasYouTube ? '✓ saved' : '— not set';
+      youtubeInd.className   = 'api-key-indicator ' + (hasYouTube ? 'ok' : 'missing');
+    }
+
+    // Overall status dot
+    const dot = document.getElementById('api-status-dot');
+    if (dot) {
+      dot.className = 'api-status-dot ' + (
+        hasGemini && hasYouTube ? 'all-ok' :
+        hasGemini || hasYouTube ? 'partial' : 'none'
+      );
+    }
+  }
+
+  // ── API key ──
+  function loadApiKey() {
+    const key = localStorage.getItem('gemini-api-key') || '';
+    document.getElementById('gemini-key-input').value = key ? '••••••••••••••••' : '';
+  }
+
+  function saveApiKey() {
+    const val = document.getElementById('gemini-key-input').value.trim();
+    if (!val || val.startsWith('•')) return;
+    localStorage.setItem('gemini-api-key', val);
+    document.getElementById('gemini-key-input').value = '••••••••••••••••';
+    renderApiKeyStatus();
+    setStatus('Gemini API key saved.', 'ok');
+  }
+
+  function getApiKey() {
+    return localStorage.getItem('gemini-api-key') || '';
+  }
+
+  // ── YouTube API key ──
+  function loadYouTubeApiKey() {
+    const key = localStorage.getItem('youtube-api-key') || '';
+    document.getElementById('youtube-key-input').value = key ? '••••••••••••••••' : '';
+  }
+
+  function saveYouTubeApiKey() {
+    const val = document.getElementById('youtube-key-input').value.trim();
+    if (!val || val.startsWith('•')) return;
+    localStorage.setItem('youtube-api-key', val);
+    document.getElementById('youtube-key-input').value = '••••••••••••••••';
+    renderApiKeyStatus();
+    setStatus('YouTube API key saved.', 'ok');
+  }
+
+  function getYouTubeApiKey() {
+    return localStorage.getItem('youtube-api-key') || '';
+  }
+
+  // ── YouTube metadata fetch ──
+  function extractYouTubeId(url) {
+    try {
+      const u = new URL(url);
+      if (u.hostname.includes('youtu.be')) return u.pathname.slice(1).split('?')[0];
+      return u.searchParams.get('v') || null;
+    } catch { return null; }
+  }
+
+  // Fetch full metadata via YouTube Data API v3 (requires key)
+  async function fetchYouTubeMetadata(videoId, apiKey) {
+    const res = await fetch(
+      `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics,contentDetails&id=${videoId}&key=${apiKey}`
+    );
+    if (!res.ok) throw new Error(`YouTube API error ${res.status}`);
+    const data = await res.json();
+    const item = data?.items?.[0];
+    const snippet        = item?.snippet;
+    const stats          = item?.statistics;
+    const contentDetails = item?.contentDetails;
+    if (!snippet) throw new Error('Video not found or API key invalid');
+
+    // Parse ISO 8601 duration (e.g. PT1H14M33S) → total seconds
+    function parseDuration(iso) {
+      if (!iso) return null;
+      const m = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+      if (!m) return null;
+      return (Number(m[1] || 0) * 3600) + (Number(m[2] || 0) * 60) + Number(m[3] || 0);
+    }
+
+    return {
+      title:        snippet.title || '',
+      channelTitle: snippet.channelTitle || '',
+      publishedAt:  snippet.publishedAt || '',
+      description:  (snippet.description || '').trim().slice(0, 1500),
+      uploaderTags: Array.isArray(snippet.tags) ? snippet.tags.slice(0, 5) : [],
+      durationSecs: parseDuration(contentDetails?.duration),
+      stats: {
+        views:    stats?.viewCount    ? Number(stats.viewCount)    : null,
+        likes:    stats?.likeCount    ? Number(stats.likeCount)    : null,
+        comments: stats?.commentCount ? Number(stats.commentCount) : null,
+      }
+    };
+  }
+
+  // Fallback: oEmbed gives title + channel name, no key needed
+  async function fetchYouTubeOEmbed(url) {
+    // Route through allorigins proxy so this works when opening as a local file
+    const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`;
+    const proxyUrl = 'https://api.allorigins.win/get?url=' + encodeURIComponent(oembedUrl);
+    const res = await fetch(proxyUrl);
+    if (!res.ok) throw new Error('oEmbed failed');
+    const wrapper = await res.json();
+    const data = JSON.parse(wrapper.contents || '{}');
+    return { title: data.title || '', channelTitle: data.author_name || '' };
+  }
+
+  // Fallback transcript via proxy (last resort)
+  async function fetchYouTubeTranscript(videoId) {
+    const proxyUrl = 'https://api.allorigins.win/get?url=' + encodeURIComponent(`https://youtubetranscript.com/?server_vid2=${videoId}`);
+    const res = await fetch(proxyUrl);
+    if (!res.ok) throw new Error('Transcript fetch failed');
+    const data = await res.json();
+    const html = data.contents || '';
+    const matches = [...html.matchAll(/<text[^>]*>([\s\S]*?)<\/text>/gi)];
+    if (matches.length === 0) throw new Error('No transcript found');
+    return matches
+      .map(m => m[1].replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&#39;/g,"'").replace(/&quot;/g,'"').replace(/<[^>]+>/g,'').trim())
+      .join(' ').replace(/\s+/g, ' ').trim().slice(0, 6000);
+  }
+
+  // ── AI Analyse ──
+  async function analyseUrl() {
+    const urlInput = document.getElementById('ai-url-input');
+    const url = urlInput.value.trim();
+    if (!url) { setStatus('Please enter a URL.', 'err'); return; }
+    if (!isValidUrl(url)) { setStatus('Please enter a valid URL (https://...).', 'err'); return; }
+
+    const geminiKey = getApiKey();
+    if (!geminiKey) { setStatus('Please enter and save your Gemini API key first.', 'err'); return; }
+
+    // ── Duplicate check ──
+    const isYouTube = /youtube\.com|youtu\.be/i.test(url);
+    const videoId = isYouTube ? extractYouTubeId(url) : null;
+
+    const duplicate = resources.find(r => {
+      if (videoId) {
+        // For YouTube: match on video ID so youtu.be/abc and youtube.com/watch?v=abc both match
+        return extractYouTubeId(r.url || '') === videoId;
+      }
+      // For non-YouTube: normalise trailing slash and match URL
+      return r.url.replace(/\/$/, '') === url.replace(/\/$/, '');
+    });
+
+    if (duplicate) {
+      const proceed = confirm(`⚠️ This resource already exists in your library:\n\n"${duplicate.title}"\n\nAdd it again anyway?`);
+      if (!proceed) { setLoading(false); return; }
+    }
+
+    setLoading(true);
+
+    // ytMeta holds official metadata when available
+    let ytMeta = null; // { title, channelTitle, description, uploaderTags }
+    let pageText = '';
+
+    if (videoId) {
+      const ytKey = getYouTubeApiKey();
+      if (ytKey) {
+        setStatus('Fetching YouTube metadata...', '');
+        try {
+          ytMeta = await fetchYouTubeMetadata(videoId, ytKey);
+          setStatus('Metadata fetched. Asking Gemini...', '');
+        } catch (e) {
+          setStatus(`YouTube API failed (${e.message}), trying oEmbed...`, '');
+        }
+      }
+
+      // If no YT key or API call failed, try oEmbed for at least title + channel
+      if (!ytMeta) {
+        try {
+          setStatus('Fetching video title via oEmbed...', '');
+          const oembed = await fetchYouTubeOEmbed(url);
+          ytMeta = { title: oembed.title, channelTitle: oembed.channelTitle, description: '', uploaderTags: [] };
+          setStatus(`Got title: "${oembed.title}". Fetching transcript...`, '');
+        } catch (e) {
+          setStatus(`oEmbed failed (${e.message}). Fetching transcript...`, '');
+        }
+      }
+
+      // If we still have no description content, try to get the transcript for Gemini to summarise
+      if (!ytMeta?.description) {
+        try {
+          pageText = await fetchYouTubeTranscript(videoId);
+          setStatus('Transcript fetched. Asking Gemini...', '');
+        } catch {
+          pageText = '(Transcript unavailable.)';
+          setStatus('Asking Gemini...', '');
+        }
+      }
+    } else {
+      // Non-YouTube: scrape page
+      setStatus('Fetching page content...', '');
+      try {
+        const proxyUrl = 'https://api.allorigins.win/get?url=' + encodeURIComponent(url);
+        const res = await fetch(proxyUrl);
+        if (!res.ok) throw new Error('Fetch failed');
+        const data = await res.json();
+        pageText = (data.contents || '')
+          .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+          .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .slice(0, 3000);
+      } catch {
+        pageText = '(Page content could not be fetched. Infer from the URL only.)';
+      }
+      setStatus('Asking Gemini to classify...', '');
+    }
+
+    // Build category context
+    const catDescriptions = {
+      Tools:     'websites, apps, platforms, or software you can use (e.g. ChatGPT, Midjourney, Hugging Face, Cursor)',
+      Models:    'AI model releases, model cards, weights, or model comparisons (e.g. GPT-4, Llama, Gemini, Mistral)',
+      Papers:    'academic research papers, arXiv links, scientific publications',
+      Tutorials: 'how-to guides, walkthroughs, courses, YouTube videos that teach or explain something',
+      Prompts:   'prompt libraries, prompt engineering guides, system prompt examples',
+      APIs:      'API documentation, developer references, SDKs, programmatic access to AI services',
+    };
+    const catContext = categories.map(c => {
+      const desc = catDescriptions[c.name] || '';
+      return desc ? `  - "${c.name}": ${desc}` : `  - "${c.name}"`;
+    }).join('\n');
+
+    // Build the prompt — structure depends on what data we have
+    let contentSection = '';
+    let titleInstruction = '- title: write a clear, specific descriptive title (max 80 chars).';
+
+    if (ytMeta?.title) {
+      // We have official metadata — Gemini only needs to enrich, not guess
+      titleInstruction = `- title: USE THIS EXACT TITLE: "${ytMeta.title}"`;
+      const uploaderTagHint = ytMeta.uploaderTags.length
+        ? `\nUploader's own tags (use as hints): ${ytMeta.uploaderTags.join(', ')}`
+        : '';
+      contentSection = `Official Video Title: ${ytMeta.title}
+Channel / Creator: ${ytMeta.channelTitle}
+Official Description: ${ytMeta.description || '(not available)'}${uploaderTagHint}
+${pageText ? `\nTranscript snippet:\n${pageText}` : ''}`;
+    } else {
+      contentSection = `URL: ${url}\n\nPage / transcript content:\n${pageText}`;
+    }
+
+    const videoHint = isYouTube
+      ? '\nNOTE: This is a YouTube video. Categorise as "Tutorials" unless it is clearly a model release announcement or research paper.'
+      : '';
+
+    const prompt = `You are a smart filing assistant for a personal learning content library called TagDrop. The user saves links to videos, articles, tutorials, tools, and documentation for later learning.
+
+Available categories:
+${catContext}
+
+Rules:
+${titleInstruction}
+- description: 2-4 sentences. Explain exactly what is covered, what the viewer will learn or do, and any specific outcomes. Be concrete — name actual techniques, concepts, or steps shown.
+- technologies: list EVERY specific technology, framework, library, model, or tool mentioned or demonstrated (e.g. "LangChain", "GPT-4o", "FAISS", "Ollama", "n8n", "Python 3.11"). Include version numbers if mentioned. Return [] if none.
+- tags: 4-8 short searchable topic keywords (e.g. "rag", "fine-tuning", "agents", "open-source"). Do NOT repeat items from technologies.
+- category: exactly one from the list above — closest match.
+${videoHint}
+
+Respond with ONLY a raw JSON object (no markdown fences, no explanation):
+{
+  "title": "exact title",
+  "description": "2-4 sentence specific summary",
+  "category": "one category name from the list",
+  "technologies": ["Tech1", "Tech2"],
+  "tags": ["tag1", "tag2"]
+}
+
+${contentSection}`;
+
+    try {
+      const geminiRes = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { temperature: 0.2, maxOutputTokens: 768 }
+          })
+        }
+      );
+
+      if (!geminiRes.ok) {
+        const err = await geminiRes.json().catch(() => ({}));
+        throw new Error(err?.error?.message || `Gemini error ${geminiRes.status}`);
+      }
+
+      const geminiData = await geminiRes.json();
+      const raw = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+
+      const jsonStr = raw.replace(/^```json\s*/i,'').replace(/^```\s*/i,'').replace(/```\s*$/,'').trim();
+      let parsed;
+      try { parsed = JSON.parse(jsonStr); }
+      catch { throw new Error('Gemini returned unexpected format. Try again.'); }
+
+      const { title, description, category, technologies, tags } = parsed;
+
+      // Build tag list: creator first, then tech tags, then topic tags — deduped
+      const creatorTag = ytMeta?.channelTitle ? [ytMeta.channelTitle] : [];
+      const techTags = Array.isArray(technologies) ? technologies.map(t => String(t).trim()).filter(Boolean) : [];
+      const topicTags = Array.isArray(tags) ? tags.map(t => String(t).toLowerCase().trim()).filter(Boolean) : [];
+
+      // Dedup case-insensitively; for tech tags keep original casing, topics lowercase
+      const seen = new Set();
+      const allTags = [...creatorTag, ...techTags, ...topicTags].filter(t => {
+        const key = t.toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      }).slice(0, 14);
+
+      // Use official title if available, fall back to Gemini's title
+      const finalTitle = ytMeta?.title || String(title || url);
+
+      const matchedCat = categories.find(c => c.name.toLowerCase() === (category || '').toLowerCase())
+        || categories[0];
+
+      const resource = {
+        id: crypto.randomUUID(),
+        title: finalTitle.slice(0, 100),
+        url,
+        desc: String(description || '').slice(0, 500),
+        catId: matchedCat.id,
+        tags: allTags,
+        watched: false,
+        createdAt: new Date().toISOString(),
+        publishedAt:  ytMeta?.publishedAt || null,
+        ytStats:      ytMeta?.stats?.views != null ? ytMeta.stats : null,
+        ytDuration:   ytMeta?.durationSecs ?? null,
+      };
+
+      resources.unshift(resource);
+      saveAndRefresh();
+
+      urlInput.value = '';
+      setStatus(`✓ Saved as "${resource.title}" in ${matchedCat.name}`, 'ok');
+    } catch (e) {
+      setStatus(`Error: ${e.message}`, 'err');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function setLoading(on) {
+    const btn = document.getElementById('ai-btn');
+    const label = document.getElementById('ai-btn-label');
+    btn.disabled = on;
+    label.innerHTML = on ? '<span class="spinner"></span>' : 'Analyse';
+  }
+
+  function setStatus(msg, type) {
+    const el = document.getElementById('ai-status');
+    el.textContent = msg;
+    el.className = 'ai-status' + (type ? ' ' + type : '');
+  }
+
+  // ── Tag type classification ──
+  function getTagType(tag, resource) {
+    // Creator: first tag on an AI-added YouTube resource
+    if (resource && /youtube\.com|youtu\.be/i.test(resource.url || '')) {
+      if ((resource.tags || [])[0] === tag) return 'creator';
+    }
+    // Technology: has any uppercase letter OR digits mixed with letters (e.g. GPT-4o, n8n, LangChain)
+    if (/[A-Z]/.test(tag) || /[a-z]\d|\d[a-z]/i.test(tag)) return 'tech';
+    return 'topic';
+  }
+
+  // Build a global set of all creator tag strings (for sidebar aggregation)
+  function getCreatorTagSet() {
+    const s = new Set();
+    resources.forEach(r => {
+      if (/youtube\.com|youtu\.be/i.test(r.url || '') && r.tags?.length) {
+        s.add(r.tags[0]);
+      }
+    });
+    return s;
+  }
+
+  function toggleTagFilter(tag) {
+    const key = tag.toLowerCase();
+    if (activeTagFilters.has(key)) {
+      activeTagFilters.delete(key);
+    } else {
+      activeTagFilters.add(key);
+    }
+    render();
+    renderSidebar();
+  }
+
+  function clearTagFilters() {
+    activeTagFilters.clear();
+    renderSidebar();
+    render();
+  }
+
+  function clearSortFilters() {
+    document.getElementById('sort-select').value = 'added-desc';
+    render();
+  }
+
+  function toggleTagSection(type) {
+    tagSectionOpen[type] = !tagSectionOpen[type];
+    renderSidebar();
+  }
+
+  function toggleSidebarSection(key) {
+    sidebarSectionOpen[key] = !sidebarSectionOpen[key];
+    localStorage.setItem('sidebar-sections', JSON.stringify(sidebarSectionOpen));
+    const body = document.getElementById('body-' + key);
+    const chevron = document.getElementById('chevron-' + key);
+    body?.classList.toggle('open', sidebarSectionOpen[key]);
+    chevron?.classList.toggle('open', sidebarSectionOpen[key]);
+  }
+
+  // ── Categories ──
+  function addCategory() {
+    const input = document.getElementById('new-cat-input');
+    const name = input.value.trim();
+    if (!name) return;
+    if (categories.find(c => c.name.toLowerCase() === name.toLowerCase())) { input.value = ''; return; }
+    const color = PALETTE[categories.length % PALETTE.length];
+    categories.push({ id: crypto.randomUUID(), name, color });
+    input.value = '';
+    saveAndRefresh();
+  }
+
+  function deleteCategory(id) {
+    if (resources.some(r => r.catId === id)) { alert('Remove all resources in this category first.'); return; }
+    categories = categories.filter(c => c.id !== id);
+    if (activeFilter === id) activeFilter = 'all';
+    saveAndRefresh();
+  }
+
+  function setFilter(id) {
+    activeFilter = id;
+    activeTagFilters.clear();
+    renderSidebar();
+    render();
+  }
+
+  function renderSidebar() {
+    const list = document.getElementById('cat-list');
+    const favCount      = resources.filter(r => r.favourite && !r.archived).length;
+    const archivedCount = resources.filter(r => !!r.archived).length;
+    const allCount      = resources.filter(r => !r.archived).length;
+    const unwatchedCount = resources.filter(r => !r.watched && !r.archived).length;
+
+    let html = `
+      <button class="cat-btn ${activeFilter === 'favourites' ? 'active' : ''}" onclick="setFilter('favourites')">
+        <span>⭐ Favourites</span>
+        <span class="cat-count">${favCount}</span>
+      </button>
+      <button class="cat-btn ${activeFilter === 'all' ? 'active' : ''}" onclick="setFilter('all')">
+        <span>All Resources</span>
+        <span class="cat-count">${allCount}</span>
+      </button>
+      <button class="cat-btn ${activeFilter === 'unwatched' ? 'active' : ''}" onclick="setFilter('unwatched')">
+        <span>👁 Unwatched</span>
+        <span class="cat-count">${unwatchedCount}</span>
+      </button>`;
+
+    categories.forEach(cat => {
+      const count = resources.filter(r => r.catId === cat.id && !r.archived).length;
+      html += `
+        <button class="cat-btn ${activeFilter === cat.id ? 'active' : ''}" onclick="setFilter('${cat.id}')">
+          <span><span class="dot" style="background:${cat.color}"></span>${escHtml(cat.name)}</span>
+          <span style="display:flex;align-items:center;gap:3px;">
+            <span class="cat-count">${count}</span>
+            <span class="cat-del" onclick="event.stopPropagation();deleteCategory('${cat.id}')" title="Delete">✕</span>
+          </span>
+        </button>`;
+    });
+
+    // Archived always pinned at the bottom of the list
+    html += `
+      <button class="cat-btn ${activeFilter === 'archived' ? 'active' : ''}" onclick="setFilter('archived')" style="margin-top:6px;border-top:1px solid #2d2d4e;padding-top:10px;">
+        <span>🗄 Archived</span>
+        <span class="cat-count">${archivedCount}</span>
+      </button>`;
+
+    list.innerHTML = html;
+    const active = categories.find(c => c.id === activeFilter);
+    let baseTitle;
+    if      (activeFilter === 'all')        baseTitle = 'All Resources';
+    else if (activeFilter === 'favourites') baseTitle = '⭐ Favourites';
+    else if (activeFilter === 'archived')   baseTitle = '🗄 Archived';
+    else if (activeFilter === 'unwatched')  baseTitle = '👁 Unwatched';
+    else                                    baseTitle = active?.name || 'Resources';
+    document.getElementById('page-title').textContent = activeTagFilters.size > 0
+      ? `${baseTitle} — ${activeTagFilters.size} tag filter${activeTagFilters.size > 1 ? 's' : ''} active`
+      : baseTitle;
+
+    // ── Tag filter sections ──
+    const creatorSet = getCreatorTagSet();
+
+    // Build a context-filtered resource set for accurate tag counts.
+    // Mirrors render()'s base filter but deliberately excludes search + tag filters,
+    // so tags from the current view are always shown with correct counts.
+    const contextResources = resources.filter(r => {
+      if (activeFilter === 'archived')   return !!r.archived;
+      if (r.archived) return false;
+      if (activeFilter === 'favourites') return !!r.favourite;
+      if (activeFilter === 'unwatched')  return !r.watched;
+      return activeFilter === 'all' || r.catId === activeFilter;
+    });
+
+    // Collect all unique tags from context resources, grouped by type + count occurrences
+    // Case-insensitive: group tags by lowercase key, keep first-seen casing as canonical
+    const tagGroups  = { creator: new Map(), tech: new Map(), topic: new Map() }; // key -> canonical display string
+    const tagCounts  = {}; // tag (lowercase) -> count of resources with that tag
+
+    // Pass 1: collect all creator tag keys (tags[0] on any YouTube resource in context).
+    // This ensures a tag like "Google Gravity" is always routed to creator, never also to tech/topic.
+    const creatorKeys = new Set();
+    contextResources.forEach(r => {
+      if (/youtube\.com|youtu\.be/i.test(r.url || '') && r.tags?.length) {
+        creatorKeys.add(r.tags[0].toLowerCase());
+      }
+    });
+
+    // Pass 2: place each tag — creator wins if its key is in creatorKeys
+    contextResources.forEach(r => {
+      (r.tags || []).forEach(t => {
+        const key  = t.toLowerCase();
+        const type = creatorKeys.has(key) ? 'creator' : getTagType(t, r);
+        if (!tagGroups[type].has(key)) tagGroups[type].set(key, t); // first-seen casing wins
+        tagCounts[key] = (tagCounts[key] || 0) + 1;
+      });
+    });
+
+    // Tags compatible with current filters — drives dimming of irrelevant tags
+    const compatibleTags = new Set();
+    if (activeTagFilters.size > 0) {
+      (window._visibleResources || []).forEach(r => {
+        (r.tags || []).forEach(t => compatibleTags.add(t.toLowerCase()));
+      });
+    }
+
+    // Which tag types currently have at least one active filter?
+    // Tags of the SAME type as an active filter are never dimmed (OR-within-type).
+    const activeFilterTypes = new Set();
+    for (const ft of activeTagFilters) {
+      if (tagGroups.creator.has(ft))     activeFilterTypes.add('creator');
+      else if (tagGroups.tech.has(ft))   activeFilterTypes.add('tech');
+      else                               activeFilterTypes.add('topic');
+    }
+
+    // Only show sections that have at least 1 tag
+    // Sort by count descending (most-used first), ties broken alphabetically
+    const byCount = (a, b) => {
+      const diff = (tagCounts[b.toLowerCase()] || 0) - (tagCounts[a.toLowerCase()] || 0);
+      return diff !== 0 ? diff : a.toLowerCase().localeCompare(b.toLowerCase());
+    };
+    const sectionDefs = [
+      { key: 'creator', label: '👤 Creators',     tags: [...tagGroups.creator.values()].sort(byCount) },
+      { key: 'tech',    label: '⚙️ Technologies', tags: [...tagGroups.tech.values()].sort(byCount) },
+      { key: 'topic',   label: '🏷️ Topics',       tags: [...tagGroups.topic.values()].sort(byCount) },
+    ].filter(s => s.tags.length > 0);
+
+    if (sectionDefs.length === 0) {
+      document.getElementById('tag-filter-area').innerHTML = '';
+      return;
+    }
+
+    let tagHtml = '';
+
+    if (activeTagFilters.size > 0) {
+      tagHtml += `<button class="clear-tag-filters" onclick="clearTagFilters()">✕ Clear ${activeTagFilters.size} tag filter${activeTagFilters.size > 1 ? 's' : ''}</button>`;
+    }
+
+    sectionDefs.forEach(({ key, label, tags }) => {
+      const isOpen = tagSectionOpen[key];
+      const activeCount = tags.filter(t => activeTagFilters.has(t.toLowerCase())).length;
+      tagHtml += `
+        <div class="tag-section">
+          <div class="tag-section-header" onclick="toggleTagSection('${key}')">
+            <span class="tag-section-title">${label}${activeCount > 0 ? ` <span style="color:#6366f1">(${activeCount})</span>` : ''}</span>
+            <span class="tag-section-chevron${isOpen ? ' open' : ''}">▼</span>
+          </div>
+          <div class="tag-section-body${isOpen ? ' open' : ''}">
+            ${tags.map(t => {
+              const tKey = t.toLowerCase();
+              const isActive = activeTagFilters.has(tKey);
+              const sameTypeAsFilter = activeFilterTypes.has(key); // key = 'creator'|'tech'|'topic'
+              const isDimmed = activeTagFilters.size > 0 && !isActive && !sameTypeAsFilter && !compatibleTags.has(tKey);
+              const count = tagCounts[tKey] || 0;
+              return `<span class="sidebar-tag ${key}${isActive ? ' active' : ''}${isDimmed ? ' dimmed' : ''}" onclick="toggleTagFilter('${escHtml(t)}')" title="${escHtml(t)}">${escHtml(t)}<span class="sidebar-tag-count">(${count})</span></span>`;
+            }).join('')}
+          </div>
+        </div>`;
+    });
+
+    document.getElementById('tag-filter-area').innerHTML = tagHtml;
+  }
+
+  function renderCatSelects() {
+    const sel = document.getElementById('e-cat');
+    if (!sel) return;
+    sel.innerHTML = categories.map(c => `<option value="${c.id}">${escHtml(c.name)}</option>`).join('');
+  }
+
+  // ── Favourite / Archive / Restore ──
+  function toggleFavourite(id) {
+    const r = resources.find(r => r.id === id);
+    if (!r) return;
+    r.favourite = !r.favourite;
+    saveAndRefresh();
+  }
+
+  function toggleWatched(id) {
+    const r = resources.find(r => r.id === id);
+    if (!r) return;
+    r.watched = !r.watched;
+    saveAndRefresh();
+  }
+
+  function archiveResource(id) {
+    const r = resources.find(r => r.id === id);
+    if (!r) return;
+    r.archived = true;
+    saveAndRefresh();
+  }
+
+  function restoreResource(id) {
+    const r = resources.find(r => r.id === id);
+    if (!r) return;
+    r.archived = false;
+    saveAndRefresh();
+  }
+
+
+  // ── Edit / Delete (hard delete kept for programmatic use / import cleanup) ──
+  function deleteResource(id) {
+    resources = resources.filter(r => r.id !== id);
+    saveAndRefresh();
+  }
+
+  function openEdit(id) {
+    const r = resources.find(r => r.id === id);
+    if (!r) return;
+    editingId = id;
+    renderCatSelects();
+    document.getElementById('e-title').value = r.title;
+    document.getElementById('e-url').value   = r.url;
+    document.getElementById('e-desc').value  = r.desc || '';
+    document.getElementById('e-cat').value   = r.catId;
+    document.getElementById('e-tags').value  = (r.tags || []).join(', ');
+    document.getElementById('modal').classList.add('open');
+  }
+
+  function closeModal() {
+    editingId = null;
+    document.getElementById('modal').classList.remove('open');
+  }
+
+  function saveEdit() {
+    const r = resources.find(r => r.id === editingId);
+    if (!r) return;
+    const title = document.getElementById('e-title').value.trim();
+    const url   = document.getElementById('e-url').value.trim();
+    if (!title || !url) { alert('Title and URL are required.'); return; }
+    if (!isValidUrl(url)) { alert('Please enter a valid URL.'); return; }
+    r.title = title; r.url = url;
+    r.desc  = document.getElementById('e-desc').value.trim();
+    r.catId = document.getElementById('e-cat').value;
+    r.tags  = document.getElementById('e-tags').value.split(',').map(t => t.trim().toLowerCase()).filter(Boolean).slice(0, 8);
+    saveAndRefresh(); closeModal();
+  }
+
+  // ── Render cards ──
+  function render() {
+    const container = document.getElementById('resources-grid');
+    const search    = document.getElementById('search-input').value.toLowerCase();
+    const sortVal   = document.getElementById('sort-select')?.value || 'added-desc';
+    const isArchiveView = activeFilter === 'archived';
+
+    // Precompute tag type groups for hybrid filter (OR within type, AND across types)
+    let filterGroups = null;
+    if (activeTagFilters.size > 0) {
+      const creatorLower = new Set();
+      getCreatorTagSet().forEach(t => creatorLower.add(t.toLowerCase()));
+      const techLower = new Set();
+      resources.forEach(r => (r.tags || []).forEach(t => {
+        if (/[A-Z]/.test(t) || /[a-z]\d|\d[a-z]/i.test(t)) techLower.add(t.toLowerCase());
+      }));
+      filterGroups = { creator: [], tech: [], topic: [] };
+      for (const ft of activeTagFilters) {
+        if (creatorLower.has(ft)) filterGroups.creator.push(ft);
+        else if (techLower.has(ft)) filterGroups.tech.push(ft);
+        else filterGroups.topic.push(ft);
+      }
+    }
+
+    let visible = resources.filter(r => {
+      // Archive view: only show archived
+      if (activeFilter === 'archived')   return !!r.archived;
+      // All other views: never show archived
+      if (r.archived) return false;
+      // Favourites view
+      if (activeFilter === 'favourites') return !!r.favourite;
+      // Unwatched backlog
+      if (activeFilter === 'unwatched')  return !r.watched;
+      // Normal category / all
+      const matchCat    = activeFilter === 'all' || r.catId === activeFilter;
+      const matchSearch = !search ||
+        r.title.toLowerCase().includes(search) ||
+        (r.desc || '').toLowerCase().includes(search) ||
+        r.url.toLowerCase().includes(search) ||
+        (r.tags || []).some(t => t.toLowerCase().includes(search));
+      // Hybrid tag filter: OR within same type, AND across types
+      let matchTags = true;
+      if (filterGroups) {
+        const rTagsLower = (r.tags || []).map(t => t.toLowerCase());
+        for (const type of ['creator', 'tech', 'topic']) {
+          if (filterGroups[type].length > 0 && !filterGroups[type].some(ft => rTagsLower.includes(ft))) {
+            matchTags = false; break;
+          }
+        }
+      }
+      return matchCat && matchSearch && matchTags;
+    });
+
+    // Sort
+    const sortFns = {
+      'added-desc':     (a, b) => new Date(b.createdAt)  - new Date(a.createdAt),
+      'added-asc':      (a, b) => new Date(a.createdAt)  - new Date(b.createdAt),
+      'published-desc': (a, b) => new Date(b.publishedAt || 0) - new Date(a.publishedAt || 0),
+      'published-asc':  (a, b) => new Date(a.publishedAt || 0) - new Date(b.publishedAt || 0),
+      'views-desc':     (a, b) => (b.ytStats?.views ?? -1) - (a.ytStats?.views ?? -1),
+      'likes-desc':     (a, b) => (b.ytStats?.likes ?? -1) - (a.ytStats?.likes ?? -1),
+      'duration-desc':  (a, b) => (b.ytDuration ?? -1) - (a.ytDuration ?? -1),
+      'duration-asc':   (a, b) => {
+        if (a.ytDuration == null && b.ytDuration == null) return 0;
+        if (a.ytDuration == null) return 1;
+        if (b.ytDuration == null) return -1;
+        return a.ytDuration - b.ytDuration;
+      },
+    };
+    visible = [...visible].sort(sortFns[sortVal] || sortFns['added-desc']);
+    window._visibleResources = visible;
+    const ytCount = visible.filter(r => !r.archived && extractYouTubeId(r.url)).length;
+    const nbBtn = document.getElementById('notebooklm-btn');
+    if (nbBtn) nbBtn.title = `Export ${ytCount} YouTube URL${ytCount !== 1 ? 's' : ''} for NotebookLM`;
+
+    if (!visible.length) {
+      container.className = '';
+      container.innerHTML = `<div class="empty-state">${isArchiveView ? 'No archived resources.' : 'No resources found. Add one above!'}</div>`;
+      return;
+    }
+
+    // ── Shared helpers ──
+    function buildStatsHtml(r) {
+      if (!r.ytStats && r.ytDuration == null) return '';
+      const s = r.ytStats || {};
+      const parts = [];
+      if (s.views    != null) parts.push(`<span class="card-stat"><span class="card-stat-icon">👁</span><span class="card-stat-val">${fmtNum(s.views)}</span> views</span>`);
+      if (s.likes    != null) parts.push(`<span class="card-stat"><span class="card-stat-icon">👍</span><span class="card-stat-val">${fmtNum(s.likes)}</span> likes</span>`);
+      if (s.comments != null) parts.push(`<span class="card-stat"><span class="card-stat-icon">💬</span><span class="card-stat-val">${fmtNum(s.comments)}</span> comments</span>`);
+      if (r.ytDuration != null) parts.push(`<span class="card-stat"><span class="card-stat-icon">⏱</span><span class="card-stat-val">${fmtDuration(r.ytDuration)}</span></span>`);
+      if (r.publishedAt) {
+        const pub = new Date(r.publishedAt).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' });
+        parts.push(`<span class="card-stat"><span class="card-stat-icon">📅</span><span class="card-stat-val">${pub}</span></span>`);
+      }
+      return parts.length ? `<div class="card-stats">${parts.join('')}</div>` : '';
+    }
+
+    function buildTagsHtml(r) {
+      return (r.tags || []).length
+        ? `<div class="card-tags">${r.tags.map(t => {
+            const type = getTagType(t, r);
+            const isActive = activeTagFilters.has(t.toLowerCase());
+            return `<span class="tag ${type}${isActive ? ' active' : ''}" onclick="toggleTagFilter('${escHtml(t)}')" title="Filter by: ${escHtml(t)}">${escHtml(t)}</span>`;
+          }).join('')}</div>`
+        : '';
+    }
+
+    function actionButtons(r, actionsClass) {
+      if (isArchiveView) {
+        return `<div class="${actionsClass}">
+          <button class="restore" onclick="restoreResource('${r.id}')" title="Restore from archive">↩</button>
+          <button class="del" onclick="if(confirm('Permanently delete \\'${escHtml(r.title).replace(/'/g,"\\'")}\\'? This cannot be undone.'))deleteResource('${r.id}')" title="Delete permanently">✕</button>
+        </div>`;
+      }
+      const favClass   = r.favourite ? ' active' : '';
+      const watchClass = r.watched   ? ' active' : '';
+      return `<div class="${actionsClass}">
+        <button class="fav${favClass}"     onclick="toggleFavourite('${r.id}')" title="${r.favourite?'Unfavourite':'Favourite'}">♥</button>
+        <button class="watch${watchClass}" onclick="toggleWatched('${r.id}')"   title="${r.watched?'Mark unwatched':'Mark watched'}">👁</button>
+        <button class="edit" onclick="openEdit('${r.id}')" title="Edit">✎</button>
+        <button class="del"  onclick="archiveResource('${r.id}')" title="Archive">✕</button>
+      </div>`;
+    }
+
+    // Pre-build category lookup map (O(1) instead of O(n) per card)
+    const catMap = new Map(categories.map(c => [c.id, c]));
+    function cardCtx(r) {
+      const cat   = catMap.get(r.catId);
+      const color = cat?.color || '#9ca3af';
+      const date  = new Date(r.createdAt).toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' });
+      return { cat, color, date };
+    }
+
+    // ── List view (only view) ──
+    function renderListCard(r) {
+      const { cat, color, date } = cardCtx(r);
+      const ytId = extractYouTubeId(r.url);
+      return `
+        <div class="card-list${r.watched ? ' watched' : ''}">
+          <div class="card-list-left">
+            <div class="card-list-title">${escHtml(r.title)}</div>
+            <div class="card-url"><a href="${escHtml(r.url)}" target="_blank" rel="noopener noreferrer">${escHtml(r.url)}</a></div>
+            ${r.desc ? `<div class="card-desc">${escHtml(r.desc)}</div>` : ''}
+            ${buildTagsHtml(r)}
+            ${buildStatsHtml(r)}
+          </div>
+          <div class="card-list-right">
+            ${actionButtons(r, 'card-list-actions')}
+            ${ytId ? `<img class="list-thumb" src="https://img.youtube.com/vi/${ytId}/mqdefault.jpg" alt="" loading="lazy" onerror="this.style.display='none'">` : ''}
+            <span class="badge" style="background:${color}22;color:${color};">${escHtml(cat?.name || 'Uncategorised')}</span>
+            <span class="card-date">${date}</span>
+          </div>
+        </div>`;
+    }
+
+    container.className = 'resources-list';
+    const unwatched = visible.filter(r => !r.watched);
+    const watched   = visible.filter(r => r.watched);
+    let html = unwatched.map(renderListCard).join('');
+    if (watched.length) {
+      html += `<div class="watched-divider"><span>👁 WATCHED</span></div>`;
+      html += watched.map(renderListCard).join('');
+    }
+    container.innerHTML = html;
+  }
+
+  // ── Gemini enrichment helper (used by refreshYouTubeStats) ──
+  async function enrichWithGemini(ytMeta, geminiKey) {
+    const uploaderTagHint = ytMeta.uploaderTags?.length
+      ? `\nUploader's own tags (use as hints): ${ytMeta.uploaderTags.join(', ')}`
+      : '';
+    const contentSection = `Official Video Title: ${ytMeta.title}
+Channel / Creator: ${ytMeta.channelTitle}
+Official Description: ${ytMeta.description || '(not available)'}${uploaderTagHint}`;
+
+    const prompt = `You are a smart filing assistant for a personal learning content library called TagDrop.
+
+Rules:
+- description: 2-4 sentences. Explain exactly what is covered, what the viewer will learn or do, and any specific outcomes. Be concrete — name actual techniques, concepts, or steps shown.
+- technologies: list EVERY specific technology, framework, library, model, or tool mentioned or demonstrated (e.g. "LangChain", "GPT-4o", "FAISS"). Return [] if none.
+- tags: 4-8 short searchable topic keywords (e.g. "rag", "fine-tuning", "agents"). Do NOT repeat items from technologies.
+
+Respond with ONLY a raw JSON object (no markdown fences):
+{
+  "description": "...",
+  "technologies": ["Tech1"],
+  "tags": ["tag1"]
+}
+
+${contentSection}`;
+
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.2, maxOutputTokens: 512 }
+        })
+      }
+    );
+    if (!res.ok) throw new Error(`Gemini error ${res.status}`);
+    const data = await res.json();
+    const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const jsonStr = raw.replace(/^```json\s*/i,'').replace(/^```\s*/i,'').replace(/```\s*$/,'').trim();
+    const parsed = JSON.parse(jsonStr);
+    return {
+      description:  String(parsed.description || '').slice(0, 500),
+      technologies: Array.isArray(parsed.technologies) ? parsed.technologies : [],
+      topicTags:    Array.isArray(parsed.tags) ? parsed.tags : [],
+    };
+  }
+
+  // ── Refresh YouTube stats for existing resources ──
+  async function refreshYouTubeStats() {
+    const ytKey = getYouTubeApiKey();
+    if (!ytKey) { alert('Please save your YouTube API key first.'); return; }
+
+    const ytResources = resources.filter(r => extractYouTubeId(r.url || ''));
+    if (ytResources.length === 0) { alert('No YouTube videos found in your library.'); return; }
+
+    const geminiKey = getApiKey();
+    const needsEnrichment = ytResources.filter(r => !r.tags?.length || !r.desc);
+
+    let confirmMsg = `Refresh stats for ${ytResources.length} YouTube video${ytResources.length !== 1 ? 's' : ''}?`;
+    if (geminiKey && needsEnrichment.length > 0) {
+      confirmMsg += `\n\nAlso enrich tags/description for ${needsEnrichment.length} video${needsEnrichment.length !== 1 ? 's' : ''} missing them (uses Gemini).`;
+    }
+    if (!confirm(confirmMsg)) return;
+
+    const btn = document.getElementById('refresh-stats-btn');
+    btn.disabled = true;
+
+    let statsUpdated = 0, statsFailed = 0, enriched = 0, enrichFailed = 0;
+
+    for (let i = 0; i < ytResources.length; i++) {
+      const r = ytResources[i];
+      const videoId = extractYouTubeId(r.url);
+      btn.textContent = `↻ Fetching (${i + 1}/${ytResources.length})...`;
+
+      let freshMeta = null;
+      try {
+        freshMeta = await fetchYouTubeMetadata(videoId, ytKey);
+        if (freshMeta.stats?.views != null) {
+          r.ytStats     = freshMeta.stats;
+          r.publishedAt = freshMeta.publishedAt || r.publishedAt || null;
+          r.ytDuration  = freshMeta.durationSecs ?? r.ytDuration ?? null;
+          statsUpdated++;
+        }
+      } catch { statsFailed++; }
+
+      if (geminiKey && (!r.tags?.length || !r.desc) && freshMeta) {
+        try {
+          const enrichData = await enrichWithGemini(freshMeta, geminiKey);
+          if (!r.desc && enrichData.description) r.desc = enrichData.description;
+          if (!r.tags?.length) {
+            const creatorTag = freshMeta.channelTitle ? [freshMeta.channelTitle] : [];
+            const techTags   = enrichData.technologies.map(t => String(t).trim()).filter(Boolean);
+            const topicTags  = enrichData.topicTags.map(t => String(t).toLowerCase().trim()).filter(Boolean);
+            const seen = new Set();
+            r.tags = [...creatorTag, ...techTags, ...topicTags].filter(t => {
+              const k = t.toLowerCase();
+              if (seen.has(k)) return false;
+              seen.add(k); return true;
+            }).slice(0, 14);
+          }
+          enriched++;
+        } catch { enrichFailed++; }
+      }
+
+      await new Promise(res => setTimeout(res, 200));
+    }
+
+    saveAndRefresh();
+
+    btn.disabled = false;
+    btn.textContent = '↻ Refresh YouTube Stats';
+
+    let msg = `Stats refreshed: ${statsUpdated} updated${statsFailed > 0 ? `, ${statsFailed} failed` : ''}.`;
+    if (geminiKey && needsEnrichment.length > 0) {
+      msg += `\nTags/desc enriched: ${enriched}${enrichFailed > 0 ? `, ${enrichFailed} failed` : ''}.`;
+    }
+    alert(msg);
+  }
+
+  // ── Helpers ──
+  function escHtml(str) {
+    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function isValidUrl(str) {
+    try { const u = new URL(str); return u.protocol === 'http:' || u.protocol === 'https:'; }
+    catch { return false; }
+  }
+
+  function fmtNum(n) {
+    if (n == null) return null;
+    if (n >= 1_000_000) return (n / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
+    if (n >= 1_000)     return (n / 1_000).toFixed(1).replace(/\.0$/, '') + 'K';
+    return String(n);
+  }
+
+  function fmtDuration(secs) {
+    if (secs == null) return null;
+    const h = Math.floor(secs / 3600);
+    const m = Math.floor((secs % 3600) / 60);
+    const s = secs % 60;
+    if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+    return `${m}:${String(s).padStart(2,'0')}`;
+  }
+
+  // ── Sidebar resize ──
+  (function() {
+    const STORAGE_KEY = 'sidebar-width';
+    const MIN_W = 160, MAX_W = 480, DEFAULT_W = 230;
+    const layout  = document.querySelector('.layout');
+    const resizer = document.getElementById('sidebar-resizer');
+
+    let currentW = parseInt(localStorage.getItem(STORAGE_KEY) || DEFAULT_W, 10);
+    layout.style.setProperty('--sidebar-w', currentW + 'px');
+
+    resizer.addEventListener('mousedown', e => {
+      e.preventDefault();
+      const startX = e.clientX;
+      const startW = currentW;
+      resizer.classList.add('dragging');
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+
+      function onMove(e) {
+        currentW = Math.min(MAX_W, Math.max(MIN_W, startW + e.clientX - startX));
+        layout.style.setProperty('--sidebar-w', currentW + 'px');
+      }
+      function onUp() {
+        resizer.classList.remove('dragging');
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        localStorage.setItem(STORAGE_KEY, currentW);
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      }
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  })();
+
+  // Close modal on overlay click
+  document.getElementById('modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeModal(); });
+  document.getElementById('new-cat-input').addEventListener('keydown', e => { if (e.key === 'Enter') addCategory(); });
+  document.getElementById('ai-url-input').addEventListener('keydown', e => { if (e.key === 'Enter') analyseUrl(); });
+  document.getElementById('gemini-key-input').addEventListener('keydown', e => { if (e.key === 'Enter') saveApiKey(); });
+  document.getElementById('youtube-key-input').addEventListener('keydown', e => { if (e.key === 'Enter') saveYouTubeApiKey(); });
+
+  // ── Init ──
+  loadApiKey();
+  loadYouTubeApiKey();
+  // Restore sidebar section open/closed states
+  ['data', 'categories'].forEach(key => {
+    if (!sidebarSectionOpen[key]) {
+      document.getElementById('body-' + key)?.classList.remove('open');
+      document.getElementById('chevron-' + key)?.classList.remove('open');
+    }
+  });
+  // Restore API keys panel open/closed state
+  if (apiKeysPanelOpen) {
+    document.getElementById('api-keys-body').classList.add('open');
+    document.getElementById('api-keys-chevron').classList.add('open');
+  }
+  renderApiKeyStatus();
+  renderSidebar();
+  renderCatSelects();
+  render();
+  renderBackupInfo();
+</script>
+</body>
+</html>
