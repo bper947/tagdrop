@@ -102,6 +102,15 @@
       margin-left: 2px;
     }
     .cat-del:hover { color: #ef4444; }
+    .cat-move {
+      color: #4b5563;
+      font-size: 0.7rem;
+      padding: 0 2px;
+      cursor: pointer;
+      line-height: 1;
+      opacity: 0.6;
+    }
+    .cat-move:hover { color: #e5e7eb; opacity: 1; }
 
     .add-cat-row {
       display: flex;
@@ -340,6 +349,15 @@
     .card-list-actions .watch:hover, .card-list-actions .watch.active { color: #3b82f6; }
     .card-list.watched { opacity: 0.5; }
     .card-list.watched:hover { opacity: 0.85; }
+
+    /* ── Comment score badge ── */
+    .comment-score-badge {
+      display: inline-block; padding: 3px 10px;
+      border-radius: 20px; font-size: 0.72rem; font-weight: 600; white-space: nowrap;
+    }
+    /* ── Analyse comments button ── */
+    .card-list-actions .analyse-comments:hover   { color: #6366f1; }
+    .card-list-actions .analyse-comments:disabled { opacity: 0.4; cursor: not-allowed; }
 
     .card-url a {
       font-size: 0.8rem; color: #6366f1;
@@ -754,13 +772,20 @@
       <div id="body-categories" class="tag-section-body open" style="flex-direction:column;gap:0;padding:4px 0 8px;">
         <div id="cat-list"></div>
         <div class="add-cat-row" style="margin-top:6px;padding:0 10px;">
-          <input type="text" id="new-cat-input" placeholder="Add category..." maxlength="30" />
+          <input type="text" id="new-cat-input" placeholder="Add Main category..." maxlength="30" />
           <button onclick="addCategory()">+</button>
         </div>
       </div>
     </div>
 
-    <div id="tag-filter-area" class="tag-filter-area"></div>
+    <div id="tag-filter-area" class="tag-filter-area">
+      <input type="text" id="tag-search" placeholder="&#128269; Search tags..."
+        oninput="renderSidebar()"
+        style="width:100%;padding:5px 8px;border-radius:6px;border:1px solid #374151;
+               background:#111827;color:#e5e7eb;font-size:0.8rem;margin-bottom:6px;
+               box-sizing:border-box;outline:none;" />
+      <div id="tag-sections"></div>
+    </div>
 
     <!-- API Key Configuration — pinned to bottom of sidebar -->
     <div class="api-keys-panel" id="api-keys-panel">
@@ -839,12 +864,13 @@
         <option value="likes-desc">Most likes</option>
         <option value="duration-desc">Longest first</option>
         <option value="duration-asc">Shortest first</option>
+        <option value="insight-desc">Insight Score (highest)</option>
       </select>
 
       <button class="sort-bar-clear" onclick="clearSortFilters()">✕ Reset</button>
 
       <div class="sort-bar-spacer"></div>
-      <button class="sort-bar-notebooklm" id="notebooklm-btn" onclick="exportForNotebookLM()" title="Export YouTube URLs for NotebookLM">&#128211; NotebookLM</button>
+      <button class="sort-bar-notebooklm" id="notebooklm-btn" onclick="exportForNotebookLM()" title="Export YouTube URLs for NotebookLM">&#128211; Export to NotebookLM</button>
 
     </div>
 
@@ -884,6 +910,22 @@
   </div>
 </div>
 
+<!-- NotebookLM export modal -->
+<div class="modal-overlay" id="notebooklm-modal">
+  <div class="modal" style="max-width:520px;">
+    <h2>&#128211; Export to NotebookLM</h2>
+    <p style="font-size:0.85rem;color:#6b7280;margin-bottom:12px;">Copy these URLs, then in NotebookLM click <strong>Add sources → Website URL</strong> and paste each one.</p>
+    <textarea id="notebooklm-urls" readonly
+      style="width:100%;height:180px;resize:vertical;font-size:0.78rem;font-family:monospace;
+             background:#111827;color:#e5e7eb;border:1px solid #374151;border-radius:8px;
+             padding:10px;line-height:1.5;"></textarea>
+    <div class="form-actions" style="margin-top:12px;">
+      <button class="btn-ghost" onclick="closeNotebooklmModal()">Close</button>
+      <button class="btn-primary" onclick="copyNotebooklmUrls()">&#128203; Copy all</button>
+    </div>
+  </div>
+</div>
+
 <script>
   // ── Palette ──
   const PALETTE = ['#6366f1','#10b981','#f59e0b','#ef4444','#3b82f6','#8b5cf6','#ec4899','#14b8a6','#f97316','#84cc16'];
@@ -912,10 +954,22 @@
   })();
 
   // ── State ──
-  let resources  = loadJSON('tagdrop-resources', []).map(r => ({ favourite: false, archived: false, watched: false, ...r }));
+  let resources  = loadJSON('tagdrop-resources', []).map(r => ({ favourite: false, archived: false, watched: false, ytCommentScore: null, ytCommentCount: null, ytCommentSignals: null, ...r }));
   let categories = loadJSON('tagdrop-categories', null) || DEFAULT_CATEGORIES;
+
+  // ── Migrate flat categories to 3-level hierarchy ──
+  (function migrateCategoryHierarchy() {
+    if (!categories.length || categories[0].type) return; // already migrated
+    const mainId = crypto.randomUUID();
+    categories = [
+      { id: mainId, name: 'General', color: '#6366f1', type: 'main' },
+      ...categories.map(c => ({ ...c, type: 'major', parentId: mainId }))
+    ];
+    localStorage.setItem('tagdrop-categories', JSON.stringify(categories));
+  })();
   let activeFilter = 'all';
   let activeTagFilters = new Set();
+  let tagGroups = { creator: new Map(), tech: new Map(), topic: new Map() }; // lifted to module scope for clearTagSection
   const tagSectionOpen = { creator: true, tech: true, topic: false };
   const sidebarSectionOpen = loadJSON('sidebar-sections', { data: true, categories: true });
   let editingId = null;
@@ -1007,14 +1061,22 @@
       return;
     }
     const content = ytResources.map(r => r.url).join('\n');
-    const blob = new Blob([content], { type: 'text/plain' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    const date = new Date().toISOString().slice(0, 10);
-    a.href     = url;
-    a.download = `notebooklm-sources-${date}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
+    const ta = document.getElementById('notebooklm-urls');
+    if (ta) { ta.value = content; setTimeout(() => ta.select(), 50); }
+    document.getElementById('notebooklm-modal').classList.add('open');
+  }
+
+  function closeNotebooklmModal() {
+    document.getElementById('notebooklm-modal').classList.remove('open');
+  }
+
+  function copyNotebooklmUrls() {
+    const ta = document.getElementById('notebooklm-urls');
+    if (!ta) return;
+    navigator.clipboard.writeText(ta.value).then(() => {
+      const btn = document.querySelector('#notebooklm-modal .btn-primary');
+      if (btn) { btn.textContent = '✓ Copied!'; setTimeout(() => { btn.innerHTML = '&#128203; Copy all'; }, 2000); }
+    }).catch(() => { ta.select(); document.execCommand('copy'); });
   }
 
   // ── Import collection (merge-only) ──
@@ -1151,6 +1213,67 @@
     return localStorage.getItem('youtube-api-key') || '';
   }
 
+  // ── YouTube comment analysis (called during metadata fetch) ──
+  // videoId + apiKey are already known at call time; resourceId is resolved later
+  // when called from the add flow, resourceId may be null (resource not yet in array) —
+  // so we resolve by matching videoId against resources after the fetch completes.
+  async function analyseComments_forVideo(videoId, apiKey, resourceId) {
+    if (!videoId || !apiKey) return;
+    try {
+      const resp = await fetch(
+        `https://www.googleapis.com/youtube/v3/commentThreads?part=snippet&videoId=${videoId}&maxResults=100&order=relevance&key=${apiKey}`
+      );
+      if (!resp.ok) {
+        const errData = await resp.json().catch(() => ({}));
+        const reason  = errData?.error?.errors?.[0]?.reason || '';
+        const msg     = errData?.error?.message || `API error ${resp.status}`;
+        if (resp.status === 403 && (reason === 'commentsDisabled' || reason === 'forbidden')) throw new Error(reason);
+        throw new Error(msg);
+      }
+
+      const items = (await resp.json()).items || [];
+
+      // Resolve resource — by explicit ID or by matching videoId in url
+      const r = resourceId
+        ? resources.find(res => res.id === resourceId)
+        : resources.find(res => extractYouTubeId(res.url) === videoId);
+      if (!r) return;
+
+      if (items.length === 0) {
+        r.ytCommentScore = 50; r.ytCommentCount = 0;
+        saveAndRefresh(); return;
+      }
+
+      function decodeEntities(s) {
+        return s.replace(/&amp;/g,'&').replace(/&#39;/g,"'").replace(/&quot;/g,'"').replace(/&lt;/g,'<').replace(/&gt;/g,'>');
+      }
+
+      const LEARN_SIG = ['learned','learnt','taught me','explained','understand now','makes sense','finally get','aha'];
+      const POS_SIG   = ['great','amazing','excellent','helpful','awesome','love this','best','thank you','thanks','brilliant','perfect'];
+      const NEG_SIG   = ['waste','useless','wrong','misleading','skip','boring','terrible','bad video','clickbait'];
+      const TS_RE     = /\b\d{1,2}:\d{2}\b/;
+
+      let rawScore = 0, learnHits = 0, posHits = 0, negHits = 0, tsHits = 0;
+      items.forEach(item => {
+        const text = decodeEntities(item?.snippet?.topLevelComment?.snippet?.textDisplay || '').toLowerCase();
+        LEARN_SIG.forEach(s => { if (text.includes(s)) { rawScore += 2; learnHits++; } });
+        POS_SIG.forEach(s   => { if (text.includes(s)) { rawScore += 1; posHits++;   } });
+        NEG_SIG.forEach(s   => { if (text.includes(s)) { rawScore -= 2; negHits++;   } });
+        if (TS_RE.test(text)) { rawScore += 1; tsHits++; }
+      });
+
+      const S        = rawScore;
+      const compound = S / Math.sqrt(S * S + 225);   // VADER: α=15, α²=225
+      r.ytCommentScore   = Math.round((compound + 1) / 2 * 100);
+      r.ytCommentCount   = items.length;
+      r.ytCommentSignals = { learn: learnHits, pos: posHits, neg: negHits, ts: tsHits };
+      saveAndRefresh();
+
+    } catch (err) {
+      console.warn('analyseComments error:', err.message);
+    }
+  }
+
   // ── YouTube metadata fetch ──
   function extractYouTubeId(url) {
     try {
@@ -1263,6 +1386,8 @@
         try {
           ytMeta = await fetchYouTubeMetadata(videoId, ytKey);
           setStatus('Metadata fetched. Asking Gemini...', '');
+          // Kick off comment analysis in parallel — result saves itself when ready
+          analyseComments_forVideo(videoId, ytKey);
         } catch (e) {
           setStatus(`YouTube API failed (${e.message}), trying oEmbed...`, '');
         }
@@ -1355,8 +1480,8 @@ ${catContext}
 Rules:
 ${titleInstruction}
 - description: 2-4 sentences. Explain exactly what is covered, what the viewer will learn or do, and any specific outcomes. Be concrete — name actual techniques, concepts, or steps shown.
-- technologies: list EVERY specific technology, framework, library, model, or tool mentioned or demonstrated (e.g. "LangChain", "GPT-4o", "FAISS", "Ollama", "n8n", "Python 3.11"). Include version numbers if mentioned. Return [] if none.
-- tags: 4-8 short searchable topic keywords (e.g. "rag", "fine-tuning", "agents", "open-source"). Do NOT repeat items from technologies.
+- technologies: list up to 5 specific technologies, frameworks, libraries, models, or tools mentioned or demonstrated (e.g. "LangChain", "GPT-4o", "FAISS", "Ollama", "n8n", "Python 3.11"). Include version numbers if mentioned. Return [] if none.
+- tags: exactly 4-6 short searchable topic keywords. Rules for tags: (1) Do NOT repeat any word from technologies. (2) Do NOT include generic words like "video", "tutorial", "content", "watch", "guide", "course", "introduction", "overview" — these add no value. (3) Prefer specific tags (e.g. "prompt-chaining", "rag-pipeline") over generic ones (e.g. "prompts", "rag"). (4) Use lowercase, hyphenated phrases where needed.
 - category: exactly one from the list above — closest match.
 ${videoHint}
 
@@ -1497,6 +1622,15 @@ ${contentSection}`;
     render();
   }
 
+  function clearTagSection(typeKey) {
+    // Remove any active filters that belong to this section's tag group
+    [...activeTagFilters].forEach(tKey => {
+      if (tagGroups[typeKey]?.has(tKey)) activeTagFilters.delete(tKey);
+    });
+    renderSidebar();
+    render();
+  }
+
   function clearSortFilters() {
     document.getElementById('sort-select').value = 'added-desc';
     render();
@@ -1518,18 +1652,72 @@ ${contentSection}`;
 
   // ── Categories ──
   function addCategory() {
+    // Adds a new Main category
     const input = document.getElementById('new-cat-input');
     const name = input.value.trim();
     if (!name) return;
-    if (categories.find(c => c.name.toLowerCase() === name.toLowerCase())) { input.value = ''; return; }
-    const color = PALETTE[categories.length % PALETTE.length];
-    categories.push({ id: crypto.randomUUID(), name, color });
+    if (categories.find(c => c.name.toLowerCase() === name.toLowerCase() && c.type === 'main')) { input.value = ''; return; }
+    const color = PALETTE[categories.filter(c => c.type === 'main').length % PALETTE.length];
+    categories.push({ id: crypto.randomUUID(), name, color, type: 'main' });
     input.value = '';
     saveAndRefresh();
   }
 
+  function addSubCategory(parentId) {
+    const parent = categories.find(c => c.id === parentId);
+    if (!parent) return;
+    const childType = parent.type === 'main' ? 'major' : 'minor';
+    const name = prompt(`New ${childType} name:`);
+    if (!name?.trim()) return;
+    const color = PALETTE[categories.length % PALETTE.length];
+    categories.push({ id: crypto.randomUUID(), name: name.trim(), color, type: childType, parentId });
+    saveAndRefresh();
+  }
+
+  function renameCategory(id) {
+    const cat = categories.find(c => c.id === id);
+    if (!cat) return;
+    const el = document.querySelector(`[data-cat-id="${id}"] .cat-name`);
+    if (!el) return;
+    const inp = document.createElement('input');
+    inp.value = cat.name;
+    inp.style.cssText = 'width:100%;background:transparent;color:inherit;border:none;border-bottom:1px solid #6366f1;outline:none;font-size:inherit;font-family:inherit;';
+    el.replaceWith(inp);
+    inp.focus(); inp.select();
+    const doSave = () => { if (inp.value.trim()) cat.name = inp.value.trim(); saveAndRefresh(); };
+    inp.addEventListener('blur', doSave);
+    inp.addEventListener('keydown', e => { if (e.key === 'Enter') inp.blur(); if (e.key === 'Escape') saveAndRefresh(); });
+  }
+
+  function moveCategoryUp(id) {
+    const cat = categories.find(c => c.id === id);
+    if (!cat) return;
+    const siblings = categories.filter(c => c.type === cat.type && c.parentId === cat.parentId);
+    const idx = siblings.findIndex(c => c.id === id);
+    if (idx <= 0) return;
+    const aIdx = categories.indexOf(siblings[idx]);
+    const bIdx = categories.indexOf(siblings[idx - 1]);
+    [categories[aIdx], categories[bIdx]] = [categories[bIdx], categories[aIdx]];
+    saveAndRefresh();
+  }
+
+  function moveCategoryDown(id) {
+    const cat = categories.find(c => c.id === id);
+    if (!cat) return;
+    const siblings = categories.filter(c => c.type === cat.type && c.parentId === cat.parentId);
+    const idx = siblings.findIndex(c => c.id === id);
+    if (idx < 0 || idx >= siblings.length - 1) return;
+    const aIdx = categories.indexOf(siblings[idx]);
+    const bIdx = categories.indexOf(siblings[idx + 1]);
+    [categories[aIdx], categories[bIdx]] = [categories[bIdx], categories[aIdx]];
+    saveAndRefresh();
+  }
+
   function deleteCategory(id) {
-    if (resources.some(r => r.catId === id)) { alert('Remove all resources in this category first.'); return; }
+    const cat = categories.find(c => c.id === id);
+    if (!cat) return;
+    if (resources.some(r => r.catId === id)) { alert('Move or remove all resources in this category first.'); return; }
+    if (categories.some(c => c.parentId === id)) { alert('Remove all subcategories first.'); return; }
     categories = categories.filter(c => c.id !== id);
     if (activeFilter === id) activeFilter = 'all';
     saveAndRefresh();
@@ -1563,16 +1751,79 @@ ${contentSection}`;
         <span class="cat-count">${unwatchedCount}</span>
       </button>`;
 
-    categories.forEach(cat => {
-      const count = resources.filter(r => r.catId === cat.id && !r.archived).length;
-      html += `
-        <button class="cat-btn ${activeFilter === cat.id ? 'active' : ''}" onclick="setFilter('${cat.id}')">
-          <span><span class="dot" style="background:${cat.color}"></span>${escHtml(cat.name)}</span>
-          <span style="display:flex;align-items:center;gap:3px;">
-            <span class="cat-count">${count}</span>
-            <span class="cat-del" onclick="event.stopPropagation();deleteCategory('${cat.id}')" title="Delete">✕</span>
-          </span>
-        </button>`;
+    // ── 3-level hierarchy: Main → Major → Minor ──
+    function catMoveButtons(id) {
+      return `<span class="cat-move" onclick="event.stopPropagation();moveCategoryUp('${id}')" title="Move up">↑</span><span class="cat-move" onclick="event.stopPropagation();moveCategoryDown('${id}')" title="Move down">↓</span>`;
+    }
+
+    const mains = categories.filter(c => c.type === 'main');
+    const orphanMajors = categories.filter(c => c.type === 'major' && !categories.find(m => m.id === c.parentId && m.type === 'main'));
+
+    [...mains, ...(orphanMajors.length ? [{ id: '__orphan__', name: 'Uncategorised', color: '#6b7280', type: 'main', _orphan: true }] : [])].forEach(main => {
+      const isOrphan = main._orphan;
+      const majors = isOrphan ? orphanMajors : categories.filter(c => c.type === 'major' && c.parentId === main.id);
+      // Count resources in this whole subtree (major + minor children)
+      const majorIds = majors.map(m => m.id);
+      const minorIds = categories.filter(c => c.type === 'minor' && majorIds.includes(c.parentId)).map(c => c.id);
+      const subtreeCount = resources.filter(r => !r.archived && ([...majorIds, ...minorIds].includes(r.catId))).length;
+
+      if (!isOrphan) {
+        html += `<div style="margin-top:4px;">
+          <div style="display:flex;align-items:center;gap:2px;padding:3px 8px 2px;border-bottom:1px solid #2d2d4e;">
+            <span data-cat-id="${main.id}" style="flex:1;display:flex;align-items:center;gap:4px;font-size:0.72rem;font-weight:600;color:#818cf8;text-transform:uppercase;letter-spacing:0.06em;cursor:default;">
+              <span class="dot" style="background:${main.color}"></span>
+              <span class="cat-name">${escHtml(main.name)}</span>
+              <span style="color:#9ca3af;font-weight:400;">(${subtreeCount})</span>
+            </span>
+            <span class="cat-del" onclick="event.stopPropagation();renameCategory('${main.id}')" title="Rename" style="opacity:0.5;font-size:0.75rem;">✏️</span>
+            <span class="cat-del" onclick="event.stopPropagation();addSubCategory('${main.id}')" title="Add Major" style="opacity:0.6;font-size:0.9rem;">+</span>
+            ${catMoveButtons(main.id)}
+            <span class="cat-del" onclick="event.stopPropagation();deleteCategory('${main.id}')" title="Delete Main">✕</span>
+          </div>`;
+      } else {
+        html += `<div style="margin-top:4px;"><div style="font-size:0.7rem;color:#6b7280;padding:2px 8px;text-transform:uppercase;letter-spacing:0.06em;">Uncategorised</div>`;
+      }
+
+      majors.forEach(major => {
+        const minors = categories.filter(c => c.type === 'minor' && c.parentId === major.id);
+        const majorCount = resources.filter(r => !r.archived && r.catId === major.id).length;
+        const minorIds2 = minors.map(c => c.id);
+        const subtreeMajorCount = majorCount + resources.filter(r => !r.archived && minorIds2.includes(r.catId)).length;
+
+        html += `
+          <button class="cat-btn ${activeFilter === major.id ? 'active' : ''}" data-cat-id="${major.id}" onclick="setFilter('${major.id}')" style="padding-left:20px;">
+            <span style="display:flex;align-items:center;gap:4px;flex:1;min-width:0;">
+              <span class="dot" style="background:${major.color}"></span>
+              <span class="cat-name" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(major.name)}</span>
+            </span>
+            <span style="display:flex;align-items:center;gap:2px;flex-shrink:0;">
+              <span class="cat-count">${subtreeMajorCount}</span>
+              <span class="cat-del" onclick="event.stopPropagation();renameCategory('${major.id}')" title="Rename" style="font-size:0.75rem;">✏️</span>
+              <span class="cat-del" onclick="event.stopPropagation();addSubCategory('${major.id}')" title="Add Minor">+</span>
+              ${catMoveButtons(major.id)}
+              <span class="cat-del" onclick="event.stopPropagation();deleteCategory('${major.id}')" title="Delete">✕</span>
+            </span>
+          </button>`;
+
+        minors.forEach(minor => {
+          const minorCount = resources.filter(r => !r.archived && r.catId === minor.id).length;
+          html += `
+            <button class="cat-btn ${activeFilter === minor.id ? 'active' : ''}" data-cat-id="${minor.id}" onclick="setFilter('${minor.id}')" style="padding-left:36px;font-size:0.8rem;">
+              <span style="display:flex;align-items:center;gap:4px;flex:1;min-width:0;">
+                <span class="dot" style="background:${minor.color}"></span>
+                <span class="cat-name" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(minor.name)}</span>
+              </span>
+              <span style="display:flex;align-items:center;gap:2px;flex-shrink:0;">
+                <span class="cat-count">${minorCount}</span>
+                <span class="cat-del" onclick="event.stopPropagation();renameCategory('${minor.id}')" title="Rename" style="font-size:0.75rem;">✏️</span>
+                ${catMoveButtons(minor.id)}
+                <span class="cat-del" onclick="event.stopPropagation();deleteCategory('${minor.id}')" title="Delete">✕</span>
+              </span>
+            </button>`;
+        });
+      });
+
+      html += `</div>`;
     });
 
     // Archived always pinned at the bottom of the list
@@ -1610,7 +1861,7 @@ ${contentSection}`;
 
     // Collect all unique tags from context resources, grouped by type + count occurrences
     // Case-insensitive: group tags by lowercase key, keep first-seen casing as canonical
-    const tagGroups  = { creator: new Map(), tech: new Map(), topic: new Map() }; // key -> canonical display string
+    tagGroups  = { creator: new Map(), tech: new Map(), topic: new Map() }; // key -> canonical display string (module-level for clearTagSection)
     const tagCounts  = {}; // tag (lowercase) -> count of resources with that tag
 
     // Pass 1: collect all creator tag keys (tags[0] on any YouTube resource in context).
@@ -1661,8 +1912,10 @@ ${contentSection}`;
       { key: 'topic',   label: '🏷️ Topics',       tags: [...tagGroups.topic.values()].sort(byCount) },
     ].filter(s => s.tags.length > 0);
 
+    const tagSearch = document.getElementById('tag-search')?.value.toLowerCase().trim() || '';
+
     if (sectionDefs.length === 0) {
-      document.getElementById('tag-filter-area').innerHTML = '';
+      document.getElementById('tag-sections').innerHTML = '';
       return;
     }
 
@@ -1675,32 +1928,60 @@ ${contentSection}`;
     sectionDefs.forEach(({ key, label, tags }) => {
       const isOpen = tagSectionOpen[key];
       const activeCount = tags.filter(t => activeTagFilters.has(t.toLowerCase())).length;
+      // Apply tag search: show tag if it matches search OR is currently active
+      const visibleTags = tags.filter(t => !tagSearch || t.toLowerCase().includes(tagSearch) || activeTagFilters.has(t.toLowerCase()));
+      if (visibleTags.length === 0) return; // skip section if search hides all tags
+      const sectionClearBtn = activeCount > 0
+        ? `<button onclick="clearTagSection('${key}')" style="margin-left:auto;background:none;border:none;color:#6b7280;font-size:0.72rem;cursor:pointer;padding:0 2px;" title="Clear ${key} filters">✕${activeCount}</button>`
+        : '';
       tagHtml += `
         <div class="tag-section">
           <div class="tag-section-header" onclick="toggleTagSection('${key}')">
             <span class="tag-section-title">${label}${activeCount > 0 ? ` <span style="color:#6366f1">(${activeCount})</span>` : ''}</span>
+            ${sectionClearBtn}
             <span class="tag-section-chevron${isOpen ? ' open' : ''}">▼</span>
           </div>
           <div class="tag-section-body${isOpen ? ' open' : ''}">
-            ${tags.map(t => {
+            ${visibleTags.map(t => {
               const tKey = t.toLowerCase();
               const isActive = activeTagFilters.has(tKey);
               const sameTypeAsFilter = activeFilterTypes.has(key); // key = 'creator'|'tech'|'topic'
               const isDimmed = activeTagFilters.size > 0 && !isActive && !sameTypeAsFilter && !compatibleTags.has(tKey);
-              const count = tagCounts[tKey] || 0;
+              // When filters are active, show how many resources would match if THIS tag were also selected
+              let count;
+              if (activeTagFilters.size === 0 || isActive) {
+                count = tagCounts[tKey] || 0; // no filter: global count; or this tag is already active
+              } else {
+                // Intersection count: resources that have this tag AND satisfy all current active filters
+                count = contextResources.filter(r => {
+                  const rTags = (r.tags || []).map(t => t.toLowerCase());
+                  return rTags.includes(tKey) && [...activeTagFilters].every(ak => rTags.includes(ak));
+                }).length;
+              }
               return `<span class="sidebar-tag ${key}${isActive ? ' active' : ''}${isDimmed ? ' dimmed' : ''}" onclick="toggleTagFilter('${escHtml(t)}')" title="${escHtml(t)}">${escHtml(t)}<span class="sidebar-tag-count">(${count})</span></span>`;
             }).join('')}
           </div>
         </div>`;
     });
 
-    document.getElementById('tag-filter-area').innerHTML = tagHtml;
+    // Only update the sections container — the search input stays in the DOM untouched (no focus loss)
+    document.getElementById('tag-sections').innerHTML = tagHtml;
   }
 
   function renderCatSelects() {
     const sel = document.getElementById('e-cat');
     if (!sel) return;
-    sel.innerHTML = categories.map(c => `<option value="${c.id}">${escHtml(c.name)}</option>`).join('');
+    // Show only Major and Minor categories (resources are assigned at these levels, not Main)
+    const assignable = categories.filter(c => c.type === 'major' || c.type === 'minor' || !c.type);
+    sel.innerHTML = assignable.map(c => {
+      const parent = categories.find(p => p.id === c.parentId);
+      const grandparent = parent && categories.find(g => g.id === parent.parentId);
+      let label;
+      if (grandparent)     label = `${grandparent.name} › ${parent.name} › ${c.name}`;
+      else if (parent)     label = `${parent.name} › ${c.name}`;
+      else                 label = c.name;
+      return `<option value="${c.id}">${escHtml(label)}</option>`;
+    }).join('');
   }
 
   // ── Favourite / Archive / Restore ──
@@ -1839,6 +2120,7 @@ ${contentSection}`;
         if (b.ytDuration == null) return -1;
         return a.ytDuration - b.ytDuration;
       },
+      'insight-desc':   (a, b) => (b.ytCommentScore ?? -1) - (a.ytCommentScore ?? -1),
     };
     visible = [...visible].sort(sortFns[sortVal] || sortFns['added-desc']);
     window._visibleResources = visible;
@@ -1868,6 +2150,24 @@ ${contentSection}`;
       return parts.length ? `<div class="card-stats">${parts.join('')}</div>` : '';
     }
 
+    function commentScoreBadge(r) {
+      if (r.ytCommentScore == null) return '';
+      const score = r.ytCommentScore;
+      const c     = score >= 75 ? '#10b981' : score >= 50 ? '#f59e0b' : '#ef4444';
+      const count = r.ytCommentCount || 0;
+      const sig   = r.ytCommentSignals;
+      let tooltip = `Insight Score · ${count} comment${count !== 1 ? 's' : ''}`;
+      if (sig) {
+        const parts = [];
+        if (sig.learn > 0) parts.push(`${sig.learn} learning`);
+        if (sig.pos   > 0) parts.push(`${sig.pos} positive`);
+        if (sig.ts    > 0) parts.push(`${sig.ts} with timestamps`);
+        if (sig.neg   > 0) parts.push(`${sig.neg} negative`);
+        if (parts.length) tooltip += ' · ' + parts.join(' · ');
+      }
+      return `<span class="comment-score-badge" style="background:${c}22;color:${c};" title="${tooltip}">💬 ${score}%</span>`;
+    }
+
     function buildTagsHtml(r) {
       return (r.tags || []).length
         ? `<div class="card-tags">${r.tags.map(t => {
@@ -1885,8 +2185,8 @@ ${contentSection}`;
           <button class="del" onclick="if(confirm('Permanently delete \\'${escHtml(r.title).replace(/'/g,"\\'")}\\'? This cannot be undone.'))deleteResource('${r.id}')" title="Delete permanently">✕</button>
         </div>`;
       }
-      const favClass   = r.favourite ? ' active' : '';
-      const watchClass = r.watched   ? ' active' : '';
+      const favClass    = r.favourite ? ' active' : '';
+      const watchClass  = r.watched   ? ' active' : '';
       return `<div class="${actionsClass}">
         <button class="fav${favClass}"     onclick="toggleFavourite('${r.id}')" title="${r.favourite?'Unfavourite':'Favourite'}">♥</button>
         <button class="watch${watchClass}" onclick="toggleWatched('${r.id}')"   title="${r.watched?'Mark unwatched':'Mark watched'}">👁</button>
@@ -1919,8 +2219,9 @@ ${contentSection}`;
           </div>
           <div class="card-list-right">
             ${actionButtons(r, 'card-list-actions')}
-            ${ytId ? `<img class="list-thumb" src="https://img.youtube.com/vi/${ytId}/mqdefault.jpg" alt="" loading="lazy" onerror="this.style.display='none'">` : ''}
+            ${ytId ? `<a href="${escHtml(r.url)}" target="_blank" rel="noopener" style="display:block;line-height:0;border-radius:6px;overflow:hidden;"><img class="list-thumb" src="https://img.youtube.com/vi/${ytId}/mqdefault.jpg" alt="Watch video" loading="lazy" onerror="this.parentElement.style.display='none'" style="cursor:pointer;"></a>` : ''}
             <span class="badge" style="background:${color}22;color:${color};">${escHtml(cat?.name || 'Uncategorised')}</span>
+            ${commentScoreBadge(r)}
             <span class="card-date">${date}</span>
           </div>
         </div>`;
@@ -1950,8 +2251,8 @@ Official Description: ${ytMeta.description || '(not available)'}${uploaderTagHin
 
 Rules:
 - description: 2-4 sentences. Explain exactly what is covered, what the viewer will learn or do, and any specific outcomes. Be concrete — name actual techniques, concepts, or steps shown.
-- technologies: list EVERY specific technology, framework, library, model, or tool mentioned or demonstrated (e.g. "LangChain", "GPT-4o", "FAISS"). Return [] if none.
-- tags: 4-8 short searchable topic keywords (e.g. "rag", "fine-tuning", "agents"). Do NOT repeat items from technologies.
+- technologies: list up to 5 specific technologies, frameworks, libraries, models, or tools mentioned or demonstrated (e.g. "LangChain", "GPT-4o", "FAISS"). Return [] if none.
+- tags: exactly 4-6 short searchable topic keywords. Rules: (1) Do NOT repeat any word from technologies. (2) Do NOT include generic words like "video", "tutorial", "content", "watch", "guide", "course", "introduction", "overview". (3) Prefer specific tags (e.g. "prompt-chaining") over generic ones (e.g. "prompts"). (4) Use lowercase, hyphenated phrases where needed.
 
 Respond with ONLY a raw JSON object (no markdown fences):
 {
@@ -2021,6 +2322,8 @@ ${contentSection}`;
           r.ytDuration  = freshMeta.durationSecs ?? r.ytDuration ?? null;
           statsUpdated++;
         }
+        // Re-analyse comments as part of the refresh
+        analyseComments_forVideo(videoId, ytKey, r.id);
       } catch { statsFailed++; }
 
       if (geminiKey && (!r.tags?.length || !r.desc) && freshMeta) {
